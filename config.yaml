@@ -1,0 +1,19 @@
+# CheckStream Proxy Configuration
+
+# Backend LLM API URL
+backend_url: "https://api.openai.com/v1"
+
+# Policy file path or policy pack name
+policy_path: "./policies/default.yaml"
+
+# Classifiers configuration file
+classifiers_config: "./classifiers.yaml"
+
+# Token buffer configuration
+token_holdback: 10  # Number of tokens to hold for lookahead
+max_buffer_capacity: 1000  # Maximum tokens in buffer
+
+# Telemetry configuration
+telemetry:
+  enabled: true
+  mode: aggregate  # Options: aggregate, full

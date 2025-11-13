@@ -1,0 +1,48 @@
+# Rust
+/target
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# Debug files
+debug/
+*.dSYM/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# Testing
+.coverage
+htmlcov/
+
+# Benchmark results
+target/criterion/
+
+# Docker
+docker-compose.override.yml
+
+# OS
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Configuration overrides
+config.local.yaml
+*.local.yaml

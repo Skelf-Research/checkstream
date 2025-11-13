@@ -1,0 +1,30 @@
+# Prometheus configuration for CheckStream
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'checkstream-proxy'
+    static_configs:
+      - targets: ['checkstream-proxy:8080']
+        labels:
+          service: 'checkstream'
+          component: 'proxy'
+
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+# Alerting rules (example)
+rule_files:
+  # - 'alerts.yml'
+
+# Configure alert manager (optional)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#       - targets: ['alertmanager:9093']

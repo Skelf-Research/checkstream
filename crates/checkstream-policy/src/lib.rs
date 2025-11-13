@@ -1,0 +1,27 @@
+//! CheckStream Policy Engine
+//!
+//! Declarative policy-as-code engine for defining safety, security,
+//! and regulatory compliance rules.
+//!
+//! Policies are defined in YAML and specify:
+//! - Triggers (classifiers, patterns, context conditions)
+//! - Actions (redact, inject, stop, adapt, log)
+//! - Regulatory mappings (FCA, FINRA, MiFID II, etc.)
+
+pub mod action;
+pub mod engine;
+pub mod rule;
+pub mod trigger;
+
+pub use action::{Action, ActionType};
+pub use engine::PolicyEngine;
+pub use rule::{Policy, Rule};
+pub use trigger::{Trigger, TriggerType};
+
+/// Prelude for convenient imports
+pub mod prelude {
+    pub use crate::action::{Action, ActionType};
+    pub use crate::engine::PolicyEngine;
+    pub use crate::rule::{Policy, Rule};
+    pub use crate::trigger::{Trigger, TriggerType};
+}

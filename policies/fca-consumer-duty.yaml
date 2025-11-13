@@ -1,0 +1,197 @@
+name: fca-consumer-duty
+description: UK Financial Conduct Authority Consumer Duty compliance pack
+version: "1.0"
+regulation: "FCA Consumer Duty (PRIN 2A)"
+
+rules:
+  # Rule 1: Investment Advice Boundary (COBS 9A)
+  - name: investment-advice-detection
+    description: Detect when AI crosses from information into regulated investment advice
+    trigger:
+      type: classifier
+      classifier: advice_vs_information
+      threshold: 0.75
+    actions:
+      - type: inject
+        content: "\n\n**Important**: This is general information only, not personalized financial advice. Consider your individual circumstances and speak to a qualified advisor."
+        position: after
+      - type: audit
+        category: advice_boundary
+        severity: high
+    regulation: "FCA COBS 9A.2.1"
+    enabled: true
+
+  # Rule 2: Suitability Assessment Prevention (PRIN 2A.4.1)
+  - name: prevent-unsuitable-recommendations
+    description: Block recommendations without proper suitability assessment
+    trigger:
+      type: classifier
+      classifier: suitability_risk
+      threshold: 0.8
+    actions:
+      - type: stop
+        message: "I cannot provide personalized investment recommendations without understanding your financial situation, objectives, and risk tolerance. Please speak with a financial advisor for personalized guidance."
+        status_code: 451
+      - type: audit
+        category: suitability_prevented
+        severity: critical
+    regulation: "FCA PRIN 2A.4.1"
+    enabled: true
+
+  # Rule 3: Vulnerable Customer Support (FG21/1)
+  - name: vulnerability-detection
+    description: Detect cues of customer vulnerability and adapt response
+    trigger:
+      type: pattern
+      pattern: "(can't pay|struggling|bereaved|disabled|anxious|depressed|confused|lost job|redundant)"
+      case_insensitive: true
+    actions:
+      - type: inject
+        content: "\n\nIf you're facing financial difficulties, we're here to help. You can access support at [support resources] or contact our specialist team."
+        position: after
+      - type: audit
+        category: vulnerability_detected
+        severity: medium
+    regulation: "FCA FG21/1 (Guidance for firms on the fair treatment of vulnerable customers)"
+    enabled: true
+
+  # Rule 4: Clear Fee Disclosure (PRIN 2A.3)
+  - name: fee-transparency
+    description: Ensure fees and charges are clearly communicated
+    trigger:
+      type: pattern
+      pattern: "(fee|charge|cost|price|commission)"
+      case_insensitive: true
+    actions:
+      - type: log
+        message: "Fee-related content detected - ensure transparency"
+        level: info
+      - type: audit
+        category: fee_disclosure
+        severity: low
+    regulation: "FCA PRIN 2A.3.1"
+    enabled: true
+
+  # Rule 5: Misleading Promotions Prevention (PRIN 2A.5)
+  - name: prevent-misleading-claims
+    description: Block potentially misleading financial promotions
+    trigger:
+      type: composite
+      operator: or
+      triggers:
+        - type: pattern
+          pattern: "(guaranteed return|risk-free|can't lose|always profitable)"
+          case_insensitive: true
+        - type: classifier
+          classifier: promotional_claim
+          threshold: 0.85
+    actions:
+      - type: redact
+        replacement: "[claim removed for regulatory compliance]"
+      - type: inject
+        content: "\n\n**Risk Warning**: The value of investments can go down as well as up, and you may get back less than you invested."
+        position: after
+      - type: audit
+        category: misleading_claim_prevented
+        severity: critical
+    regulation: "FCA PRIN 2A.5.4"
+    enabled: true
+
+  # Rule 6: Risk Disclosure (COBS 4.5)
+  - name: ensure-risk-warnings
+    description: Inject appropriate risk warnings for investment discussions
+    trigger:
+      type: composite
+      operator: and
+      triggers:
+        - type: pattern
+          pattern: "(invest|portfolio|stocks|shares|bonds|crypto|trading)"
+          case_insensitive: true
+        - type: context
+          field: response_length
+          value: ">200"  # Only for substantive responses
+    actions:
+      - type: inject
+        content: "\n\n**Risk Warning**: Investments carry risk. The value can fall as well as rise and you may not get back the amount invested. Past performance is not a reliable indicator of future results."
+        position: after
+      - type: audit
+        category: risk_warning_injected
+        severity: medium
+    regulation: "FCA COBS 4.5.2"
+    enabled: true
+
+  # Rule 7: Product Disclosure (PRIN 2A.2)
+  - name: product-information-completeness
+    description: Ensure key product features are communicated clearly
+    trigger:
+      type: pattern
+      pattern: "(ISA|pension|SIPP|bond|fund|ETF|structured product)"
+      case_insensitive: true
+    actions:
+      - type: log
+        message: "Product mention detected - ensure complete disclosure"
+        level: warn
+      - type: inject
+        content: "\n\nFor full product details, charges, and risks, please refer to the Key Information Document (KID) and product documentation."
+        position: after
+      - type: audit
+        category: product_disclosure
+        severity: medium
+    regulation: "FCA PRIN 2A.2.3"
+    enabled: true
+
+  # Rule 8: Consumer Understanding Outcome
+  - name: complexity-check
+    description: Flag overly complex language that may harm consumer understanding
+    trigger:
+      type: classifier
+      classifier: readability_score
+      threshold: 0.7  # High complexity score
+    actions:
+      - type: log
+        message: "Complex language detected - consider simplification"
+        level: warn
+      - type: audit
+        category: complexity_flagged
+        severity: low
+    regulation: "FCA Consumer Duty Outcome: Consumer Understanding"
+    enabled: true
+
+  # Rule 9: Prevent Foreseeable Harm
+  - name: foreseeable-harm-prevention
+    description: Block content that could lead to foreseeable customer harm
+    trigger:
+      type: composite
+      operator: or
+      triggers:
+        - type: pattern
+          pattern: "(borrow to invest|take loan for trading|max out credit card)"
+          case_insensitive: true
+        - type: classifier
+          classifier: harmful_strategy
+          threshold: 0.8
+    actions:
+      - type: stop
+        message: "I cannot provide guidance that may lead to financial harm. Please consult a qualified financial advisor."
+        status_code: 451
+      - type: audit
+        category: harm_prevented
+        severity: critical
+    regulation: "FCA PRIN 2A.1.13 (Foreseeable Harm)"
+    enabled: true
+
+  # Rule 10: PII Protection (GDPR/DPA 2018)
+  - name: pii-redaction
+    description: Redact personally identifiable information
+    trigger:
+      type: classifier
+      classifier: pii_detector
+      threshold: 0.9
+    actions:
+      - type: redact
+        replacement: "[REDACTED]"
+      - type: audit
+        category: pii_exposure_prevented
+        severity: high
+    regulation: "GDPR Article 5(1)(f) / DPA 2018"
+    enabled: true

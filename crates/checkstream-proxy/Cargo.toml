@@ -1,0 +1,62 @@
+[package]
+name = "checkstream-proxy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "checkstream-proxy"
+path = "src/main.rs"
+
+[dependencies]
+# Workspace crates
+checkstream-core = { path = "../checkstream-core" }
+checkstream-policy = { path = "../checkstream-policy" }
+checkstream-classifiers = { path = "../checkstream-classifiers" }
+checkstream-telemetry = { path = "../checkstream-telemetry" }
+
+# Async runtime and HTTP
+tokio = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+tower = { workspace = true }
+axum = { workspace = true }
+
+# HTTP client for backend
+reqwest = { workspace = true }
+
+# Data handling
+bytes = { workspace = true }
+tokio-util = { workspace = true }
+futures = { workspace = true }
+futures-util = { workspace = true }
+pin-project = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Logging and metrics
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+
+# Configuration
+config = { workspace = true }
+clap = { workspace = true }
+
+# TLS
+rustls = { workspace = true }
+rustls-pemfile = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros"] }
+criterion = { workspace = true }

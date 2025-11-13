@@ -65,16 +65,59 @@ CheckStream operates in three stages:
 - Centralized telemetry and compliance dashboards
 - Out-of-band architecture (no LLM traffic through control plane)
 
+## Technology Stack
+
+CheckStream is built with **Rust** for maximum performance and reliability:
+
+- **Async Runtime**: Tokio for high-concurrency streaming workloads
+- **HTTP/2 & WebSocket**: Hyper and Axum for low-latency proxy operations
+- **Zero-Copy Streaming**: Efficient buffer management with minimal allocations
+- **ML Inference**: Candle for on-device classifier execution
+- **Classifier Pipelines**: Parallel and sequential execution with conditional logic
+- **Sub-millisecond Overhead**: Optimized release builds with LTO and aggressive optimizations
+
+### Classifier System
+
+CheckStream's classifier system is organized into three tiers based on latency budgets:
+
+- **Tier A (<2ms)**: Pattern matching, regex, PII detection using Aho-Corasick
+- **Tier B (<5ms)**: Quantized neural classifiers for toxicity, prompt injection, sentiment
+- **Tier C (<10ms)**: Full-size models for nuanced classification tasks
+
+Classifiers can be:
+- **Chained sequentially** for progressive depth analysis
+- **Run in parallel** for maximum throughput
+- **Conditionally executed** based on previous results
+- **Aggregated** using various strategies (max, min, unanimous, weighted average)
+
+See [`docs/pipeline-configuration.md`](docs/pipeline-configuration.md) for details.
+
 ## Quick Start
+
+> **Note**: CheckStream is currently in active development. The installation commands below represent the target architecture.
+
+### Building from Source
+
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/checkstream.git
+cd checkstream
+
+# Build with release optimizations
+cargo build --release
+
+# Run the proxy
+./target/release/checkstream-proxy \
+  --backend https://api.openai.com/v1 \
+  --policy ./policies/default.yaml \
+  --port 8080
+```
 
 ### Proxy Mode
 
 ```bash
-# Install CheckStream
-pip install checkstream
-
 # Start proxy with default safety policies
-checkstream proxy start \
+checkstream-proxy start \
   --backend https://api.openai.com/v1 \
   --policy ./policies/default.yaml
 
@@ -92,19 +135,20 @@ curl http://localhost:8080/v1/chat/completions \
 
 ```bash
 # Use FCA Consumer Duty compliance pack
-checkstream proxy start \
+checkstream-proxy start \
   --backend https://api.anthropic.com/v1 \
   --policy-pack fca-consumer-duty \
   --telemetry aggregate
 ```
 
-### vLLM Sidecar Mode
+### Docker Deployment
 
 ```bash
-# Launch vLLM with CheckStream sidecar
-docker-compose up vllm checkstream-sidecar
+# Build Docker image
+docker build -t checkstream/proxy:latest .
 
-# Sidecar automatically hooks into vLLM generation
+# Run with Docker Compose
+docker-compose up
 ```
 
 ## Key Differentiators
@@ -171,12 +215,12 @@ policies:
 
 ## Roadmap
 
-### Phase 1: Proxy MVP (Months 0-3)
-- [x] HTTP/SSE proxy implementation (Go/Rust)
-- [x] Sliding token buffer with holdback
-- [x] Tier-A classifiers (toxicity, PII, prompt injection)
-- [x] YAML policy engine
-- [x] Basic telemetry and logging
+### Phase 1: Proxy MVP (Months 0-3) - In Progress
+- [ ] HTTP/SSE proxy implementation (Rust with Tokio/Axum)
+- [ ] Sliding token buffer with holdback
+- [ ] Tier-A classifiers (toxicity, PII, prompt injection)
+- [ ] YAML policy engine
+- [ ] Basic telemetry and logging
 
 ### Phase 2: vLLM Sidecar (Months 4-6)
 - [ ] vLLM callback hooks and IPC

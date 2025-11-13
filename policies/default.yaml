@@ -1,0 +1,64 @@
+name: default-safety-policy
+description: Basic safety and compliance checks for LLM outputs
+version: "1.0"
+
+rules:
+  - name: pii-detection
+    description: Detect and redact personally identifiable information
+    trigger:
+      type: classifier
+      classifier: pii_detector
+      threshold: 0.9
+    actions:
+      - type: redact
+        replacement: "[REDACTED]"
+      - type: audit
+        category: pii_exposure
+        severity: high
+    enabled: true
+
+  - name: toxicity-filter
+    description: Block toxic or harmful content
+    trigger:
+      type: classifier
+      classifier: toxicity
+      threshold: 0.8
+    actions:
+      - type: stop
+        message: "Content blocked due to policy violation"
+        status_code: 451
+      - type: audit
+        category: toxicity
+        severity: high
+    enabled: true
+
+  - name: prompt-injection-defense
+    description: Detect and block prompt injection attempts
+    trigger:
+      type: pattern
+      pattern: "(ignore|disregard|forget).*(previous|above|instruction)"
+      case_insensitive: true
+    actions:
+      - type: log
+        message: "Potential prompt injection detected"
+        level: warn
+      - type: stop
+        message: "Request cannot be processed"
+    enabled: true
+
+  - name: sensitive-patterns
+    description: Catch common sensitive data patterns
+    trigger:
+      type: composite
+      operator: or
+      triggers:
+        - type: pattern
+          pattern: "\\b\\d{3}-\\d{2}-\\d{4}\\b"  # SSN
+        - type: pattern
+          pattern: "\\b\\d{16}\\b"  # Credit card
+    actions:
+      - type: redact
+      - type: audit
+        category: sensitive_data
+        severity: critical
+    enabled: true

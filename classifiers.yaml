@@ -1,0 +1,228 @@
+# CheckStream Classifiers Configuration
+#
+# This file configures ML models for Tier B and Tier C classifiers.
+# Models can be loaded from local files or downloaded from Hugging Face Hub.
+
+# Default settings
+default_device: cpu          # Default device: cpu, cuda, or metal
+default_quantize: true       # Enable quantization by default for speed
+models_dir: ./models         # Directory for model files
+
+# Model configurations
+models:
+  # Tier B: Toxicity Detection (<5ms target)
+  toxicity:
+    repo_id: unitary/toxic-bert
+    filename: model.safetensors
+    revision: main
+    device: cpu
+    quantize: true
+    tier: B
+    # Automatically downloads tokenizer from HF if not specified
+
+  # Tier B: Toxicity Detection (distilled, faster)
+  toxicity-distilled:
+    repo_id: martin-ha/toxic-comment-model
+    filename: pytorch_model.bin
+    format: pytorch
+    device: cpu
+    quantize: true
+    tier: B
+
+  # Tier B: Sentiment Analysis
+  sentiment:
+    repo_id: distilbert-base-uncased-finetuned-sst-2-english
+    filename: model.safetensors
+    device: cpu
+    quantize: true
+    tier: B
+
+  # Tier B: Prompt Injection Detection
+  prompt-injection:
+    repo_id: deepset/deberta-v3-base-injection
+    filename: model.safetensors
+    device: cpu
+    quantize: true
+    tier: B
+
+  # Tier C: Financial Advice Detection (custom model)
+  financial-advice:
+    path: ./models/financial-advice/model.safetensors
+    tokenizer: ./models/financial-advice/tokenizer.json
+    device: cpu
+    quantize: false
+    format: safetensors
+    tier: C
+
+  # Tier C: Readability/Complexity Scoring
+  readability:
+    path: ./models/readability/model.safetensors
+    tokenizer: ./models/readability/tokenizer.json
+    device: cpu
+    quantize: true
+    tier: C
+
+  # Example: GPU-accelerated model (if CUDA available)
+  # Note: For GPU/Metal, use device: cpu in YAML and configure at runtime
+  toxicity-gpu:
+    repo_id: unitary/toxic-bert
+    filename: model.safetensors
+    device: cpu  # Set to cpu for now; GPU support configured programmatically
+    quantize: false
+    tier: B
+
+  # Example: Apple Silicon (Metal) acceleration
+  toxicity-metal:
+    repo_id: unitary/toxic-bert
+    filename: model.safetensors
+    device: cpu  # Set to cpu for now; Metal support configured programmatically
+    quantize: true
+    tier: B
+
+# Notes:
+#
+# Tier B models (<5ms inference):
+#   - Use distilled models (DistilBERT, smaller architectures)
+#   - Enable quantization
+#   - Optimize for CPU unless high throughput needed
+#
+# Tier C models (<10ms inference):
+#   - Full-size models acceptable
+#   - More complex architectures allowed
+#   - Can be more accurate but slower
+#
+# Device options:
+#   - cpu: Always available, good for most use cases
+#   - cuda: NVIDIA GPU, best for high throughput
+#   - metal: Apple Silicon, good balance of speed and efficiency
+#
+# Format options:
+#   - safetensors: Recommended, faster and safer
+#   - pytorch: Standard PyTorch format (.pt, .pth, .bin)
+#
+# Quantization:
+#   - Reduces memory by 30-50%
+#   - Speeds up inference 1.5-2x
+#   - Minimal accuracy loss for most tasks
+#   - More beneficial on CPU than GPU
+
+# Pipeline configurations
+# Pipelines enable chaining and parallel execution of classifiers
+pipelines:
+  # Basic safety check: run toxicity and sentiment in parallel
+  basic-safety:
+    description: "Quick safety check using parallel toxicity and sentiment analysis"
+    stages:
+      - type: parallel
+        name: safety-check
+        classifiers:
+          - toxicity
+          - sentiment
+        aggregation: max_score  # Use highest score from either classifier
+
+  # Advanced safety: sequential checks with conditional execution
+  advanced-safety:
+    description: "Multi-stage safety pipeline with conditional checks"
+    stages:
+      # Stage 1: Quick toxicity check
+      - type: single
+        name: initial-toxicity
+        classifier: toxicity-distilled
+
+      # Stage 2: If toxicity detected, run deeper analysis
+      - type: conditional
+        name: deep-toxicity-check
+        classifier: toxicity
+        condition:
+          any_above_threshold:
+            threshold: 0.5
+
+      # Stage 3: Parallel compliance checks
+      - type: parallel
+        name: compliance-checks
+        classifiers:
+          - prompt-injection
+          - financial-advice
+        aggregation: max_score
+
+  # Content quality pipeline
+  content-quality:
+    description: "Analyze content quality and readability"
+    stages:
+      - type: sequential
+        name: quality-analysis
+        classifiers:
+          - sentiment
+          - readability
+
+  # Comprehensive check: all safety classifiers
+  comprehensive-safety:
+    description: "Run all safety classifiers and require unanimous agreement"
+    stages:
+      - type: parallel
+        name: all-safety-checks
+        classifiers:
+          - toxicity
+          - sentiment
+          - prompt-injection
+        aggregation: unanimous  # All must agree for positive result
+
+  # Fast triage: find first issue
+  fast-triage:
+    description: "Stop at first detected issue for fast response"
+    stages:
+      - type: parallel
+        name: quick-checks
+        classifiers:
+          - toxicity-distilled
+          - prompt-injection
+        aggregation:
+          first_positive:
+            threshold: 0.7
+
+  # Weighted analysis: combine multiple signals
+  weighted-analysis:
+    description: "Combine multiple classifier outputs with weighted average"
+    stages:
+      - type: parallel
+        name: multi-signal
+        classifiers:
+          - toxicity
+          - sentiment
+          - readability
+        aggregation: weighted_average
+
+# Pipeline execution modes:
+#
+# Single:
+#   - Runs one classifier
+#   - Simplest stage type
+#
+# Parallel:
+#   - Runs multiple classifiers concurrently
+#   - Aggregates results based on strategy
+#   - Best for independent checks
+#
+# Sequential:
+#   - Runs classifiers one after another
+#   - Results available to subsequent stages
+#   - Use when order matters
+#
+# Conditional:
+#   - Runs classifier only if condition met
+#   - Useful for expensive checks
+#   - Saves compute on clean inputs
+#
+# Aggregation strategies:
+#   - all: Keep all results
+#   - max_score: Return highest scoring result
+#   - min_score: Return lowest scoring result
+#   - first_positive: Return first result above threshold
+#   - unanimous: Require all classifiers to agree
+#   - weighted_average: Average scores across classifiers
+#
+# Condition types:
+#   - any_above_threshold: Any previous result > threshold
+#   - all_above_threshold: All previous results > threshold
+#   - classifier_triggered: Specific classifier returned positive
+#   - always: Always execute (default)
