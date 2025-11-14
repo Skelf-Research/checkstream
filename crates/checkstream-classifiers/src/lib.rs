@@ -14,6 +14,7 @@ pub mod config;
 pub mod model_loader;
 pub mod pipeline;
 pub mod registry;
+pub mod streaming;
 pub mod pii;
 pub mod toxicity;
 pub mod patterns;
@@ -31,8 +32,11 @@ pub use pipeline::{
     PipelineExecutionResult, AggregationStrategy,
 };
 pub use registry::{
-    build_pipeline_from_config, init_registry_from_config, init_registry_from_file,
-    load_config, SharedRegistry,
+    ClassifierRegistry, build_pipeline_from_config, init_registry_from_config,
+    init_registry_from_file, load_config, SharedRegistry,
+};
+pub use streaming::{
+    StreamingBuffer, StreamingClassifier, StreamingConfig, StreamingPipeline,
 };
 
 /// Prelude for convenient imports

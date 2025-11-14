@@ -60,16 +60,22 @@ async fn main() -> Result<()> {
     info!("Configuration loaded successfully");
     info!("Backend: {}", config.backend_url);
     info!("Policy: {}", config.policy_path);
+    info!("Classifiers: {}", config.classifiers_config);
 
     // Initialize metrics
     init_metrics()?;
+
+    // Initialize application state (load classifiers and build pipelines)
+    info!("Initializing application state...");
+    let state = proxy::AppState::new(config).await?;
+    info!("Application state initialized successfully");
 
     // Create proxy server
     let addr: SocketAddr = format!("{}:{}", cli.listen, cli.port).parse()?;
     info!("Starting proxy server on {}", addr);
 
     // Build and run the server
-    let app = routes::create_router(config);
+    let app = routes::create_router(state);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     info!("Proxy listening on http://{}", addr);
@@ -104,6 +110,25 @@ fn init_metrics() -> Result<()> {
     builder
         .install()
         .map_err(|e| anyhow::anyhow!("Failed to install metrics: {}", e))?;
+
+    // Initialize baseline metrics
+    metrics::describe_counter!(
+        "checkstream_requests_total",
+        "Total number of requests processed"
+    );
+    metrics::describe_counter!(
+        "checkstream_decisions_total",
+        "Total number of pipeline decisions by phase and action"
+    );
+    metrics::describe_histogram!(
+        "checkstream_pipeline_latency_us",
+        metrics::Unit::Microseconds,
+        "Pipeline execution latency in microseconds by phase"
+    );
+    metrics::describe_counter!(
+        "checkstream_errors_total",
+        "Total number of errors by type"
+    );
 
     info!("Metrics exporter initialized");
     Ok(())

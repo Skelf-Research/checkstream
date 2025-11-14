@@ -13,6 +13,29 @@ classifiers_config: "./classifiers.yaml"
 token_holdback: 10  # Number of tokens to hold for lookahead
 max_buffer_capacity: 1000  # Maximum tokens in buffer
 
+# Pipeline configuration
+pipelines:
+  # Phase 1: Ingress (pre-generation validation)
+  ingress_pipeline: "basic-safety"
+
+  # Phase 2: Midstream (streaming checks)
+  midstream_pipeline: "fast-triage"
+
+  # Phase 3: Egress (post-generation compliance)
+  egress_pipeline: "comprehensive-safety"
+
+  # Safety thresholds
+  safety_threshold: 0.7    # Block request if score > 0.7
+  chunk_threshold: 0.8     # Redact chunk if score > 0.8
+
+  # Pipeline timeout in milliseconds
+  timeout_ms: 10
+
+  # Streaming context configuration
+  streaming:
+    context_chunks: 5      # Number of chunks to include (0 = entire buffer)
+    max_buffer_size: 100   # Maximum buffer size
+
 # Telemetry configuration
 telemetry:
   enabled: true

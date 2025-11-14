@@ -1,8 +1,10 @@
 # CheckStream
 
-**Real-time Safety and Compliance Layer for Streaming AI**
+**Provider-Agnostic, Real-time Safety and Compliance Layer for Streaming AI**
 
-CheckStream is a streaming guardrail platform that enforces safety, security, and regulatory compliance on LLM outputs as tokens are generated—without breaking latency budgets or compromising user experience.
+CheckStream is a streaming guardrail platform that enforces safety, security, and regulatory compliance on LLM outputs as tokens are generated—**regardless of which LLM provider you use**. Works with OpenAI, Anthropic, Bedrock, self-hosted models, or any future provider—without breaking latency budgets or compromising user experience.
+
+> **🔑 Core Philosophy**: CheckStream doesn't care about your backend, deployment, or use case. It just makes your LLM applications safer, regardless of how you build them.
 
 ## Overview
 
@@ -10,14 +12,26 @@ When you stream LLM tokens over HTTP Server-Sent Events (SSE), you lose the luxu
 
 ### Key Capabilities
 
+#### Provider & Agent Agnostic
+- ✅ **Works with ANY LLM**: OpenAI, Anthropic, Google, AWS, Azure, self-hosted (vLLM, Ollama), or custom
+- ✅ **Works with ANY Agent Framework**: LangChain, AutoGen, CrewAI, Semantic Kernel, custom agents
+- ✅ **Guards Final Output Only**: Agent does tools/planning/retrieval internally, CheckStream guards the streaming response
+- ✅ **No Vendor Lock-in**: Switch providers with a config change, no code changes
+- ✅ **Multi-Provider**: Route to different providers based on cost, latency, or compliance
+- ✅ **Your Infrastructure**: All processing local, data never leaves your control
+
+#### Safety & Compliance
 - **Token-level Safety**: Inspect and control outputs as they stream, not after completion
 - **Sub-10ms Latency**: Quantized classifiers and optimized orchestration keep overhead minimal
-- **Adversarial Robustness**: Multi-layer defense trained against obfuscation, jailbreaks, and evasion attempts
-- **Regulatory Compliance**: Built-in support for FCA Consumer Duty, FINRA, MiFID II, and other regulations
+- **Adversarial Robustness**: Multi-layer defense against obfuscation, jailbreaks, and evasion
+- **Regulatory Compliance**: FCA Consumer Duty, FINRA, MiFID II, GDPR, HIPAA
 - **Policy-as-Code**: Declarative, auditable rules mapped to specific regulations
-- **Model-Agnostic**: Works with OpenAI, Anthropic, Bedrock, Azure, and self-hosted models
 - **Cryptographic Audit Trail**: Hash-chained evidence for regulatory review
-- **Data Sovereignty**: Deploy in-VPC with optional SaaS control plane
+
+#### Deployment Flexibility
+- **Run Anywhere**: Docker, Kubernetes, AWS, GCP, Azure, on-prem, edge
+- **Any Mode**: Standalone proxy, sidecar, gateway, or embedded library
+- **Data Sovereignty**: Deploy in your VPC, your region, your compliance zone
 
 ## Use Cases
 
@@ -37,13 +51,51 @@ When you stream LLM tokens over HTTP Server-Sent Events (SSE), you lose the luxu
 - **Data Exfiltration Prevention**: Catch secrets and PII before they leak
 - **Toxicity & Abuse Prevention**: Sub-second moderation with context awareness
 
-## Architecture
+## How It Works: Provider-Agnostic Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│              Your Application (Unchanged)                │
+│   Use OpenAI SDK, Anthropic SDK, or any HTTP client     │
+└────────────────────┬────────────────────────────────────┘
+                     │
+                     │ Point to CheckStream instead of LLM API
+                     │
+                     ↓
+┌─────────────────────────────────────────────────────────┐
+│                  CheckStream Proxy                       │
+│  ┌─────────────┐  ┌──────────────┐  ┌─────────────┐    │
+│  │  Phase 1:   │  │   Phase 2:   │  │  Phase 3:   │    │
+│  │  Ingress    │→ │  Midstream   │→ │   Egress    │    │
+│  │ (~2-3ms)    │  │ (~1-2ms/chk) │  │  (async)    │    │
+│  └─────────────┘  └──────────────┘  └─────────────┘    │
+└────────────────────┬────────────────────────────────────┘
+                     │
+                     │ Forward to ANY backend (you configure)
+                     │
+        ┌────────────┼────────────┬─────────────┬──────────┐
+        ↓            ↓            ↓             ↓          ↓
+   ┌────────┐  ┌─────────┐  ┌─────────┐  ┌──────────┐  ┌──────┐
+   │ OpenAI │  │ Claude  │  │ Gemini  │  │  Bedrock │  │ vLLM │
+   └────────┘  └─────────┘  └─────────┘  └──────────┘  └──────┘
+```
+
+**Change backend with one line**:
+```yaml
+backend_url: "https://api.openai.com/v1"      # Use OpenAI
+# backend_url: "https://api.anthropic.com/v1"  # Or Claude
+# backend_url: "http://localhost:8000/v1"      # Or local vLLM
+```
+
+### Three-Phase Pipeline
 
 CheckStream operates in three stages:
 
 1. **Ingress** (pre-generation): Prompt validation, PII detection, policy evaluation (2-8ms)
 2. **Midstream** (during generation): Sliding token buffer, per-chunk safety checks, adaptive control (3-6ms per chunk)
 3. **Egress** (finalization): Compliance footers, audit logging, evidence generation
+
+**All phases work the same** regardless of which LLM backend you use.
 
 ### Deployment Modes
 

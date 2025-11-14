@@ -52,3 +52,7 @@ path = "../../examples/classifier_loading.rs"
 [[example]]
 name = "pipeline_usage"
 path = "../../examples/pipeline_usage.rs"
+
+[[example]]
+name = "streaming_context"
+path = "../../examples/streaming_context.rs"

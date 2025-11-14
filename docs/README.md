@@ -25,6 +25,23 @@ Complete documentation for CheckStream - Real-time Safety and Compliance Layer f
   - Result aggregation
   - Performance optimization
 
+- **[Three-Phase Architecture](THREE_PHASE_DIAGRAM.md)** ⭐ NEW - Visual guide to CheckStream phases
+  - Phase 1: Ingress (pre-generation validation)
+  - Phase 2: Midstream (streaming checks)
+  - Phase 3: Egress (compliance finalization)
+
+- **[FCA Compliance Example](FCA_EXAMPLE.md)** ⭐ NEW - Real-world regulatory example
+  - Complete walkthrough of FCA Consumer Duty scenario
+  - How phases work together for compliance
+  - Audit trail generation
+  - Detailed execution timeline
+
+- **[Streaming Context Windows](STREAMING_CONTEXT.md)** ⭐ NEW - Context-aware streaming classification
+  - Configurable context windows (last N chunks or entire buffer)
+  - Trade-offs between speed and accuracy
+  - Phase-specific recommendations
+  - Complete examples and patterns
+
 - **[Classifier Configuration](classifier-configuration.md)** - Model configuration reference
   - Loading models from HuggingFace or local files
   - Device configuration (CPU/CUDA/Metal)

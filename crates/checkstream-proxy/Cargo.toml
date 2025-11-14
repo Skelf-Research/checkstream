@@ -53,6 +53,9 @@ metrics-exporter-prometheus = { workspace = true }
 config = { workspace = true }
 clap = { workspace = true }
 
+# Utilities
+uuid = { workspace = true }
+
 # TLS
 rustls = { workspace = true }
 rustls-pemfile = { workspace = true }

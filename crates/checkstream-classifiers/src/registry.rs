@@ -3,12 +3,95 @@
 use crate::{
     Classifier, ClassifierConfig, ClassifierPipeline, ModelRegistry,
     PipelineConfigSpec, StageConfigSpec,
+    pii::PiiClassifier,
+    toxicity::ToxicityClassifier,
+    patterns::PatternClassifier,
 };
 use checkstream_core::Result;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use tracing::{info, warn};
+
+/// Registry for managing classifiers and pipelines
+pub struct ClassifierRegistry {
+    /// Loaded classifier configuration
+    config: ClassifierConfig,
+
+    /// Model registry for ML models
+    model_registry: ModelRegistry,
+
+    /// Instantiated classifiers by name
+    classifiers: HashMap<String, Arc<dyn Classifier>>,
+}
+
+impl ClassifierRegistry {
+    /// Create a new registry from configuration
+    pub fn new(config: ClassifierConfig, model_registry: ModelRegistry) -> Self {
+        Self {
+            config,
+            model_registry,
+            classifiers: HashMap::new(),
+        }
+    }
+
+    /// Load registry from configuration file
+    pub async fn from_file(path: impl AsRef<Path>) -> Result<Self> {
+        let config = load_config(path)?;
+        let model_registry = init_registry_from_config(&config)?;
+
+        let mut registry = Self::new(config, model_registry);
+        registry.initialize_classifiers().await?;
+
+        Ok(registry)
+    }
+
+    /// Initialize all classifiers from configuration
+    async fn initialize_classifiers(&mut self) -> Result<()> {
+        info!("Initializing classifiers");
+
+        // For now, initialize placeholder classifiers
+        // TODO: Load actual classifiers based on configuration
+
+        // Add basic classifiers
+        self.classifiers.insert(
+            "pii".to_string(),
+            Arc::new(PiiClassifier::new()?),
+        );
+
+        self.classifiers.insert(
+            "toxicity".to_string(),
+            Arc::new(ToxicityClassifier::new()?),
+        );
+
+        self.classifiers.insert(
+            "profanity".to_string(),
+            Arc::new(PatternClassifier::new(
+                "profanity".to_string(),
+                vec![], // Empty patterns for now
+            )?),
+        );
+
+        info!("Initialized {} classifiers", self.classifiers.len());
+
+        Ok(())
+    }
+
+    /// Get the number of loaded classifiers
+    pub fn count(&self) -> usize {
+        self.classifiers.len()
+    }
+
+    /// Build a pipeline from configuration by name
+    pub fn build_pipeline(&self, pipeline_name: &str) -> Result<ClassifierPipeline> {
+        let pipeline_config = self.config.pipelines.get(pipeline_name)
+            .ok_or_else(|| checkstream_core::Error::config(
+                format!("Pipeline '{}' not found", pipeline_name)
+            ))?;
+
+        build_pipeline_from_config(pipeline_config, &self.classifiers)
+    }
+}
 
 /// Initialize model registry from classifier configuration
 pub fn init_registry_from_config(config: &ClassifierConfig) -> Result<ModelRegistry> {
