@@ -46,3 +46,5 @@ temp/
 # Configuration overrides
 config.local.yaml
 *.local.yaml
+
+models/

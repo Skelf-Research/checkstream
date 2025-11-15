@@ -6,6 +6,10 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+default = []
+ml-models = []
+
 [dependencies]
 # Workspace crates
 checkstream-core = { path = "../checkstream-core" }
@@ -40,6 +44,7 @@ tracing = { workspace = true }
 
 # System utilities
 num_cpus = { workspace = true }
+dirs = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }
@@ -56,3 +61,19 @@ path = "../../examples/pipeline_usage.rs"
 [[example]]
 name = "streaming_context"
 path = "../../examples/streaming_context.rs"
+
+[[example]]
+name = "test_ml_model"
+path = "../../examples/test_ml_model.rs"
+
+[[example]]
+name = "model_registry_usage"
+path = "../../examples/model_registry_usage.rs"
+
+[[example]]
+name = "dynamic_model_loading"
+path = "../../examples/dynamic_model_loading.rs"
+
+[[example]]
+name = "full_dynamic_pipeline"
+path = "../../examples/full_dynamic_pipeline.rs"

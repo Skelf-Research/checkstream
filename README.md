@@ -144,6 +144,26 @@ Classifiers can be:
 
 See [`docs/pipeline-configuration.md`](docs/pipeline-configuration.md) for details.
 
+### Dynamic Model Loading
+
+**Add new models without writing code** - just edit YAML configuration:
+
+```yaml
+# models/registry.yaml
+models:
+  toxicity:
+    source:
+      type: huggingface
+      repo: "unitary/toxic-bert"
+    architecture:
+      type: bert-sequence-classification
+      num_labels: 6
+```
+
+Swap models by changing one line. Supports BERT, RoBERTa, DistilBERT, DeBERTa out of the box.
+
+See [`docs/DYNAMIC_MODEL_LOADING.md`](docs/DYNAMIC_MODEL_LOADING.md) for details.
+
 ## Quick Start
 
 > **Note**: CheckStream is currently in active development. The installation commands below represent the target architecture.

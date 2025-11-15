@@ -11,6 +11,9 @@
 
 pub mod classifier;
 pub mod config;
+pub mod dynamic_registry;
+pub mod generic_loader;
+pub mod model_config;
 pub mod model_loader;
 pub mod pipeline;
 pub mod registry;
