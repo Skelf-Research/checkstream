@@ -1,0 +1,52 @@
+\begin{thebibliography}{1}
+
+\bibitem{bai2022constitutional}
+Yuntao Bai, Saurav Kadavath, Sandipan Kundu, Amanda Askell, Jackson Kernion,
+  Andy Jones, Anna Chen, Anna Goldie, Azalia Mirhoseini, Cameron McKinnon,
+  et~al.
+\newblock Constitutional ai: Harmlessness from ai feedback.
+\newblock {\em arXiv preprint arXiv:2212.08073}, 2022.
+
+\bibitem{gehman2020realtoxicityprompts}
+Samuel Gehman, Suchin Gururangan, Maarten Sap, Yejin Choi, and Noah~A Smith.
+\newblock Realtoxicityprompts: Evaluating neural toxic degeneration in language
+  models.
+\newblock {\em arXiv preprint arXiv:2009.11462}, 2020.
+
+\bibitem{inan2023llama}
+Hakan Inan, Kartikeya Upasani, Jianfeng Chi, Rashi Rungta, Krithika Iyer,
+  Yuning Mao, Michael Tontchev, Qing Hu, Brian Fuller, Davide Testuggine,
+  et~al.
+\newblock Llama guard: Llm-based input-output safeguard for human-ai
+  conversations.
+\newblock {\em arXiv preprint arXiv:2312.06674}, 2023.
+
+\bibitem{mcmahan2017communication}
+Brendan McMahan, Eider Moore, Daniel Ramage, Seth Hampson, and Blaise~Aguera
+  y~Arcas.
+\newblock Communication-efficient learning of deep networks from decentralized
+  data.
+\newblock In {\em Artificial intelligence and statistics}, pages 1273--1282.
+  PMLR, 2017.
+
+\bibitem{ouyang2022training}
+Long Ouyang, Jeffrey Wu, Xu~Jiang, Diogo Almeida, Carroll Wainwright, Pamela
+  Mishkin, Chong Zhang, Sandhini Agarwal, Katarina Slama, Alex Ray, et~al.
+\newblock Training language models to follow instructions with human feedback.
+\newblock {\em Advances in Neural Information Processing Systems},
+  35:27730--27744, 2022.
+
+\bibitem{rebedea2023nemo}
+Traian Rebedea, Razvan Dinu, Makesh~Narsimhan Sreedhar, Christopher Parisien,
+  and Jonathan Cohen.
+\newblock Nemo guardrails: A toolkit for controllable and safe llm applications
+  with programmable rails.
+\newblock {\em arXiv preprint arXiv:2310.10501}, 2023.
+
+\bibitem{sarkar2020fedfocal}
+Dipankar Sarkar, Ankur Narang, and Sumit Rai.
+\newblock Fed-focal loss for imbalanced data classification in federated
+  learning.
+\newblock {\em arXiv preprint arXiv:2011.06283}, 2020.
+
+\end{thebibliography}
