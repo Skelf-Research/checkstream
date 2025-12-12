@@ -412,6 +412,308 @@ ingress:
 
 ---
 
+## Streaming & Client Rendering
+
+CheckStream operates as a **transparent SSE (Server-Sent Events) proxy**. Understanding this architecture is critical for building compliant agent applications.
+
+### How Streaming Works
+
+```
+┌────────┐    SSE Stream    ┌─────────────┐    SSE Stream    ┌─────────┐
+│  LLM   │ ───────────────► │ CheckStream │ ───────────────► │ Client  │
+│Backend │   (raw tokens)   │   Proxy     │ (filtered tokens)│  App    │
+└────────┘                  └─────────────┘                  └─────────┘
+                                   │
+                            ┌──────┴──────┐
+                            │  Guardrail  │
+                            │  Pipeline   │
+                            │ (3 stages)  │
+                            └─────────────┘
+```
+
+**Key Point**: Your client application is responsible for rendering tokens as they arrive. CheckStream does NOT render anything—it only decides what tokens to **allow**, **modify**, or **stop**.
+
+The proxy:
+1. Receives streaming tokens from the LLM backend
+2. Buffers tokens in a holdback window (configurable, typically 8-32 tokens)
+3. Runs guardrail classifiers on buffered content
+4. Forwards safe tokens to your client via SSE
+5. Modifies or blocks unsafe content before it reaches you
+
+### Transmission States & Client Handling
+
+Your client must handle these scenarios:
+
+| Scenario | What Client Receives | HTTP Status | `finish_reason` | Stream Continues? |
+|----------|---------------------|-------------|-----------------|-------------------|
+| **Normal completion** | All tokens + `[DONE]` event | 200 | `stop` | No |
+| **Ingress rejection** | Error JSON, no stream | 400 | N/A | Never started |
+| **Midstream block** | Partial tokens + refusal message + `[DONE]` | 200 | `stop` | No |
+| **Content redacted** | `[REDACTED]` token inline | 200 | (continues) | Yes |
+| **Stream cut** | Graceful termination message | 200 | `content_filter` | No |
+
+### Handling Redacted Content
+
+When midstream guardrails detect unsafe content (PII, toxicity, regulatory violations), the proxy replaces the unsafe span with `[REDACTED]` and continues streaming:
+
+```python
+# Python - OpenAI SDK
+response = client.chat.completions.create(
+    model="gpt-4",
+    messages=[{"role": "user", "content": "..."}],
+    stream=True
+)
+
+accumulated_text = ""
+for chunk in response:
+    content = chunk.choices[0].delta.content
+    if content:
+        # Check for redaction markers
+        if "[REDACTED]" in content:
+            # Option 1: Display a user-friendly placeholder
+            content = content.replace("[REDACTED]", "[content filtered]")
+            # Option 2: Skip silently
+            # content = content.replace("[REDACTED]", "")
+            # Option 3: Log for compliance audit
+            log_redaction_event(stream_id=chunk.id)
+
+        accumulated_text += content
+        print(content, end="", flush=True)
+
+# Check final state
+final_choice = chunk.choices[0]
+if final_choice.finish_reason == "content_filter":
+    print("\n[Response was truncated due to content policy]")
+```
+
+### Detecting Policy Blocks vs Normal Completion
+
+Stream termination from policy blocks currently uses the same `finish_reason: stop` as normal completion. To distinguish:
+
+```python
+def is_policy_termination(accumulated_text: str) -> bool:
+    """Detect if stream was terminated by guardrails."""
+    refusal_patterns = [
+        "I cannot continue this conversation",
+        "violates our usage policy",
+        "I cannot assist with that request",
+        "due to safety policies",
+    ]
+    return any(pattern in accumulated_text for pattern in refusal_patterns)
+
+# Usage
+for chunk in response:
+    # ... accumulate text ...
+    pass
+
+if is_policy_termination(accumulated_text):
+    # Handle policy-terminated response
+    log_policy_block(text=accumulated_text)
+    show_user_friendly_message()
+else:
+    # Normal completion
+    display_response(accumulated_text)
+```
+
+### Compliance Headers
+
+CheckStream adds headers to help your client understand guardrail decisions:
+
+```python
+# Access guardrail metadata from response headers
+response = requests.post(
+    "http://localhost:8080/v1/chat/completions",
+    json={"model": "gpt-4", "messages": [...], "stream": True},
+    stream=True
+)
+
+# Guardrail decision headers
+decision = response.headers.get("X-CheckStream-Decision")  # allow|block|redact
+rule_triggered = response.headers.get("X-CheckStream-Rule-Triggered")
+latency_ms = response.headers.get("X-CheckStream-Latency-Ms")
+
+if decision == "block":
+    handle_blocked_request(rule_triggered)
+```
+
+### Building Compliant Agent Applications
+
+For AI agents that must produce compliant output (financial advice, healthcare, legal), implement these patterns:
+
+#### 1. Accumulate Before Display (Recommended for Regulated Domains)
+
+```python
+def get_compliant_response(client, messages):
+    """Accumulate full response before displaying to ensure compliance."""
+    response = client.chat.completions.create(
+        model="gpt-4",
+        messages=messages,
+        stream=True
+    )
+
+    full_text = ""
+    was_redacted = False
+    was_blocked = False
+
+    for chunk in response:
+        content = chunk.choices[0].delta.content or ""
+        if "[REDACTED]" in content:
+            was_redacted = True
+            content = content.replace("[REDACTED]", "")
+        full_text += content
+
+        if chunk.choices[0].finish_reason == "content_filter":
+            was_blocked = True
+
+    return {
+        "text": full_text,
+        "redacted": was_redacted,
+        "blocked": was_blocked,
+        "compliant": not was_blocked  # Safe to display
+    }
+```
+
+#### 2. Real-Time Streaming with Guardrail Awareness
+
+```python
+def stream_with_compliance_ui(client, messages, on_token, on_redaction, on_complete):
+    """Stream tokens with callbacks for compliance events."""
+    response = client.chat.completions.create(
+        model="gpt-4",
+        messages=messages,
+        stream=True
+    )
+
+    for chunk in response:
+        content = chunk.choices[0].delta.content or ""
+
+        if "[REDACTED]" in content:
+            on_redaction(chunk_id=chunk.id)
+            content = content.replace("[REDACTED]", "[...]")
+
+        if content:
+            on_token(content)
+
+        if chunk.choices[0].finish_reason:
+            on_complete(
+                reason=chunk.choices[0].finish_reason,
+                was_filtered=chunk.choices[0].finish_reason == "content_filter"
+            )
+
+# Usage with UI callbacks
+stream_with_compliance_ui(
+    client,
+    messages,
+    on_token=lambda t: ui.append_text(t),
+    on_redaction=lambda **kw: ui.show_filter_indicator(),
+    on_complete=lambda **kw: ui.finalize_response(**kw)
+)
+```
+
+#### 3. Audit Trail for Regulated Industries
+
+```python
+import logging
+from datetime import datetime
+
+audit_logger = logging.getLogger("compliance_audit")
+
+def audited_stream(client, messages, user_id, session_id):
+    """Stream with full audit trail for regulatory compliance."""
+    request_id = generate_request_id()
+
+    audit_logger.info({
+        "event": "request_start",
+        "request_id": request_id,
+        "user_id": user_id,
+        "session_id": session_id,
+        "timestamp": datetime.utcnow().isoformat(),
+        "prompt_hash": hash_content(messages[-1]["content"])  # Don't log PII
+    })
+
+    response = client.chat.completions.create(
+        model="gpt-4",
+        messages=messages,
+        stream=True
+    )
+
+    tokens_received = 0
+    redactions = []
+
+    for chunk in response:
+        content = chunk.choices[0].delta.content or ""
+        tokens_received += 1
+
+        if "[REDACTED]" in content:
+            redactions.append({
+                "token_position": tokens_received,
+                "chunk_id": chunk.id
+            })
+
+        yield content.replace("[REDACTED]", "[filtered]")
+
+    audit_logger.info({
+        "event": "request_complete",
+        "request_id": request_id,
+        "tokens_received": tokens_received,
+        "redaction_count": len(redactions),
+        "redaction_positions": redactions,
+        "finish_reason": chunk.choices[0].finish_reason,
+        "timestamp": datetime.utcnow().isoformat()
+    })
+```
+
+### Interactive Demo
+
+Run the streaming demo to see SSE guardrails in action:
+
+```bash
+# Simulated mode (no setup required - shows SSE protocol)
+uv run examples/streaming_demo.py
+
+# Show raw SSE wire format
+uv run examples/streaming_demo.py --raw
+
+# Live mode (with real CheckStream proxy)
+export OPENAI_API_KEY=sk-...
+cargo run --bin checkstream-proxy &
+uv run examples/streaming_demo.py --proxy http://localhost:8080
+```
+
+**Simulated mode** (no API key): Generates dummy SSE events showing the exact wire format your client receives. Perfect for understanding the protocol.
+
+**Live mode** (with API key): Sends real requests through CheckStream proxy with guardrails applied.
+
+The demo shows:
+- SSE wire format: `data: {"choices":[{"delta":{"content":"..."}}]}\n\n`
+- Normal token streaming
+- PII redaction with `[REDACTED]` markers
+- Regulatory guardrails for financial advice
+- Stream termination with `finish_reason: content_filter`
+
+### Holdback Buffer & Perceived Latency
+
+CheckStream buffers tokens before releasing them to run safety checks. This adds **20-80ms perceived latency** to time-to-first-token (TTFT):
+
+```
+Without CheckStream:  [LLM generates] ──► [Client displays]
+                      TTFT: ~200ms
+
+With CheckStream:     [LLM generates] ──► [Buffer 8-32 tokens] ──► [Safety check] ──► [Client displays]
+                      TTFT: ~220-280ms (+20-80ms)
+```
+
+Configure the trade-off in your policy:
+```yaml
+guardrails:
+  midstream:
+    holdback_size: 16    # More safety, +40-60ms latency
+    # holdback_size: 8   # Less safety, +20-30ms latency
+    check_interval: 8    # Check every N tokens
+```
+
+---
+
 ## Policy Packs
 
 CheckStream includes pre-built policy packs for common compliance scenarios.
