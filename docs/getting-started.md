@@ -226,6 +226,132 @@ export CHECKSTREAM_LOG_LEVEL=info
 export CHECKSTREAM_LOG_FORMAT=json
 ```
 
+### Multi-Tenant Configuration
+
+CheckStream supports multi-tenant deployments where different clients/teams can have separate backends, policies, and streaming formats.
+
+#### Configuration
+
+Add a `tenants` section to your configuration file:
+
+```yaml
+# Default configuration (backward compatible)
+backend_url: "https://api.openai.com/v1"
+policy_path: "./policies/default.yaml"
+classifiers_config: "./classifiers.yaml"
+
+# Multi-tenant configuration
+tenants:
+  # OpenAI tenant
+  openai-prod:
+    id: "openai-prod"
+    name: "Production OpenAI"
+    backend_url: "https://api.openai.com/v1"
+    policy_path: "./policies/openai.yaml"
+    stream_format:
+      type: openai
+    api_keys:
+      - "sk-proj-key-1"
+      - "sk-proj-key-2"
+
+  # Anthropic tenant
+  anthropic-team:
+    id: "anthropic-team"
+    name: "Anthropic Integration"
+    backend_url: "https://api.anthropic.com/v1"
+    policy_path: "./policies/anthropic.yaml"
+    stream_format:
+      type: anthropic
+    api_keys:
+      - "sk-ant-key-1"
+
+  # Custom LangGraph agent
+  langgraph-agent:
+    id: "langgraph-agent"
+    name: "LangGraph Agent"
+    backend_url: "http://langgraph:8000/stream"
+    policy_path: "./policies/agent.yaml"
+    stream_format:
+      type: custom
+      format: ndjson
+      content_path: "data.message.content"
+      done_marker: '{"done": true}'
+```
+
+#### Tenant Routing
+
+CheckStream resolves tenants in the following priority order:
+
+1. **HTTP Header**: `X-Tenant-ID: openai-prod`
+2. **Path Prefix**: `POST /openai-prod/v1/chat/completions`
+3. **API Key Mapping**: Automatically routes based on the API key in the Authorization header
+4. **Default**: Falls back to the default configuration
+
+#### Example Requests
+
+```bash
+# Using X-Tenant-ID header
+curl http://localhost:8080/v1/chat/completions \
+  -H "X-Tenant-ID: anthropic-team" \
+  -H "Authorization: Bearer sk-ant-key-1" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "claude-3-opus", "messages": [...]}'
+
+# Using path prefix
+curl http://localhost:8080/langgraph-agent/v1/chat/completions \
+  -H "Authorization: Bearer sk-agent-key" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "agent-v1", "messages": [...]}'
+
+# API key-based routing (automatic)
+curl http://localhost:8080/v1/chat/completions \
+  -H "Authorization: Bearer sk-proj-key-1" \  # Routes to openai-prod
+  -H "Content-Type: application/json" \
+  -d '{"model": "gpt-4", "messages": [...]}'
+```
+
+#### Stream Formats
+
+CheckStream supports multiple streaming formats:
+
+| Format | Description | Default Content-Type |
+|--------|-------------|---------------------|
+| `openai` | OpenAI SSE format (`data: {...}\n\n`) | `text/event-stream` |
+| `anthropic` | Anthropic SSE with event types | `text/event-stream` |
+| `custom` | Configurable JSON path extraction | Configurable |
+
+**Custom format configuration:**
+
+```yaml
+stream_format:
+  type: custom
+  format: sse          # "sse" or "ndjson"
+  content_path: "delta.text"  # JSONPath to content
+  done_marker: "message_stop"  # End-of-stream marker
+  content_events:      # Event types with content (SSE only)
+    - content_block_delta
+```
+
+#### Tenant Info Endpoint
+
+Query configured tenants:
+
+```bash
+curl http://localhost:8080/tenants
+```
+
+Response:
+```json
+{
+  "tenants": [
+    {"id": "openai-prod"},
+    {"id": "anthropic-team"},
+    {"id": "langgraph-agent"}
+  ],
+  "multi_tenant_enabled": true
+}
+```
+
 ---
 
 ## Deployment Scenarios

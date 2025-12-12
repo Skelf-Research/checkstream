@@ -15,7 +15,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tracing::{debug, info, warn};
 
-use crate::config::ProxyConfig;
+use crate::config::{ProxyConfig, MultiTenantConfig};
+use crate::tenant::TenantResolver;
 
 /// Application state shared across all requests
 #[derive(Clone)]
@@ -43,6 +44,9 @@ pub struct AppState {
 
     /// Audit service for compliance logging
     pub audit_service: Arc<AuditService>,
+
+    /// Tenant resolver for multi-tenant support
+    pub tenant_resolver: Arc<TenantResolver>,
 }
 
 /// Pre-built pipelines for the three phases
@@ -60,20 +64,30 @@ pub struct Pipelines {
 impl AppState {
     /// Initialize application state from configuration
     pub async fn new(config: ProxyConfig, metrics_handle: PrometheusHandle) -> Result<Self> {
+        // Wrap in multi-tenant config for backward compatibility
+        let multi_config = MultiTenantConfig {
+            default: config,
+            tenants: Default::default(),
+        };
+        Self::new_multi_tenant(multi_config, metrics_handle).await
+    }
+
+    /// Initialize application state from multi-tenant configuration
+    pub async fn new_multi_tenant(config: MultiTenantConfig, metrics_handle: PrometheusHandle) -> Result<Self> {
         info!("Initializing application state");
 
-        // Load classifier registry
-        info!("Loading classifiers from: {}", config.classifiers_config);
-        let registry = ClassifierRegistry::from_file(&config.classifiers_config).await?;
+        // Load classifier registry for default tenant
+        info!("Loading classifiers from: {}", config.default.classifiers_config);
+        let registry = ClassifierRegistry::from_file(&config.default.classifiers_config).await?;
         info!("Loaded {} classifiers", registry.count());
 
-        // Build pipelines for each phase
-        let pipelines = Self::build_pipelines(&config, &registry)?;
+        // Build pipelines for each phase (for default tenant)
+        let pipelines = Self::build_pipelines(&config.default, &registry)?;
 
-        // Load policy engine
-        let policy_engine = Self::load_policy_engine(&config)?;
+        // Load policy engine for default tenant
+        let policy_engine = Self::load_policy_engine(&config.default)?;
         let policy_count = policy_engine.policies().len();
-        info!("Loaded {} policies from: {}", policy_count, config.policy_path);
+        info!("Loaded {} policies from: {}", policy_count, config.default.policy_path);
 
         // Create action executor
         let action_executor = ActionExecutor::new();
@@ -91,8 +105,20 @@ impl AppState {
             .timeout(std::time::Duration::from_secs(300)) // 5 minute timeout
             .build()?;
 
+        // Initialize tenant resolver
+        let tenant_resolver = TenantResolver::from_config(&config).await?;
+        if tenant_resolver.is_multi_tenant() {
+            info!(
+                "Multi-tenant mode enabled with {} tenants: {:?}",
+                tenant_resolver.list_tenants().len(),
+                tenant_resolver.list_tenants()
+            );
+        } else {
+            info!("Single-tenant mode (backward compatible)");
+        }
+
         Ok(Self {
-            config: Arc::new(config),
+            config: Arc::new(config.default),
             registry: Arc::new(registry),
             pipelines: Arc::new(pipelines),
             http_client,
@@ -100,6 +126,7 @@ impl AppState {
             policy_engine: Arc::new(RwLock::new(policy_engine)),
             action_executor: Arc::new(action_executor),
             audit_service: Arc::new(audit_service),
+            tenant_resolver: Arc::new(tenant_resolver),
         })
     }
 

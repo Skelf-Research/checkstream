@@ -1,6 +1,9 @@
 //! Proxy configuration
+//!
+//! Supports both single-tenant (backward compatible) and multi-tenant configurations.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::Path;
 
 /// Proxy configuration
@@ -167,6 +170,147 @@ pub enum TelemetryMode {
     Aggregate,
     /// Full event logging
     Full,
+}
+
+// =============================================================================
+// Multi-Tenant Configuration
+// =============================================================================
+
+/// Streaming format for backend responses
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case", tag = "type")]
+pub enum StreamFormat {
+    /// OpenAI SSE format (default): data: {...}\n\n with choices[0].delta.content
+    #[default]
+    OpenAi,
+    /// Anthropic SSE format: event types with delta.text
+    Anthropic,
+    /// Custom configurable format
+    Custom(StreamFormatConfig),
+}
+
+/// Configuration for custom streaming formats
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamFormatConfig {
+    /// Format type: "sse" or "ndjson"
+    #[serde(default = "default_stream_format_type")]
+    pub format: String,
+    /// JSONPath to content field (e.g., "data.content" or "choices[0].delta.content")
+    pub content_path: String,
+    /// Marker indicating stream end (e.g., "[DONE]" or {"done": true})
+    #[serde(default)]
+    pub done_marker: Option<String>,
+    /// Event types to extract content from (for event-based streams)
+    #[serde(default)]
+    pub content_events: Vec<String>,
+}
+
+fn default_stream_format_type() -> String {
+    "sse".to_string()
+}
+
+/// Per-tenant configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TenantConfig {
+    /// Unique tenant identifier
+    pub id: String,
+    /// Display name for the tenant
+    #[serde(default)]
+    pub name: String,
+    /// Backend LLM API URL for this tenant
+    pub backend_url: String,
+    /// Policy file path or policy pack name
+    #[serde(default = "default_policy_path")]
+    pub policy_path: String,
+    /// Classifiers configuration file path (optional, can share with default)
+    #[serde(default)]
+    pub classifiers_config: Option<String>,
+    /// Streaming format for this tenant's backend
+    #[serde(default)]
+    pub stream_format: StreamFormat,
+    /// Pipeline settings (optional, inherits from default if not set)
+    #[serde(default)]
+    pub pipelines: Option<PipelineSettings>,
+    /// API keys that map to this tenant (for API key-based routing)
+    #[serde(default)]
+    pub api_keys: Vec<String>,
+    /// Token buffer holdback size (optional, inherits from default)
+    #[serde(default)]
+    pub token_holdback: Option<usize>,
+    /// Maximum buffer capacity (optional, inherits from default)
+    #[serde(default)]
+    pub max_buffer_capacity: Option<usize>,
+}
+
+fn default_policy_path() -> String {
+    "./policies/default.yaml".to_string()
+}
+
+/// Multi-tenant configuration wrapper
+///
+/// This extends ProxyConfig with multi-tenant support while maintaining
+/// backward compatibility with single-tenant configurations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MultiTenantConfig {
+    /// Default/fallback configuration (backward compatible with ProxyConfig)
+    #[serde(flatten)]
+    pub default: ProxyConfig,
+    /// Named tenant configurations
+    #[serde(default)]
+    pub tenants: HashMap<String, TenantConfig>,
+}
+
+impl MultiTenantConfig {
+    /// Load multi-tenant configuration from file
+    pub fn load(config_path: &str, cli: &crate::Cli) -> anyhow::Result<Self> {
+        let mut config = if Path::new(config_path).exists() {
+            let content = std::fs::read_to_string(config_path)?;
+            serde_yaml::from_str(&content)?
+        } else {
+            Self::default()
+        };
+
+        // Apply CLI overrides to default config
+        if let Some(backend) = &cli.backend {
+            config.default.backend_url = backend.clone();
+        }
+
+        if let Some(policy) = &cli.policy {
+            config.default.policy_path = policy.clone();
+        }
+
+        Ok(config)
+    }
+
+    /// Check if multi-tenant mode is enabled
+    pub fn is_multi_tenant(&self) -> bool {
+        !self.tenants.is_empty()
+    }
+
+    /// Get tenant config by ID, falling back to default
+    pub fn get_tenant(&self, tenant_id: &str) -> Option<&TenantConfig> {
+        self.tenants.get(tenant_id)
+    }
+
+    /// Build API key to tenant ID mapping
+    pub fn build_api_key_index(&self) -> HashMap<String, String> {
+        let mut index = HashMap::new();
+        for (tenant_id, config) in &self.tenants {
+            for api_key in &config.api_keys {
+                index.insert(api_key.clone(), tenant_id.clone());
+            }
+        }
+        index
+    }
+}
+
+impl Default for MultiTenantConfig {
+    fn default() -> Self {
+        Self {
+            default: ProxyConfig::default(),
+            tenants: HashMap::new(),
+        }
+    }
 }
 
 fn default_classifiers_config() -> String {

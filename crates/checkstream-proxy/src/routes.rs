@@ -15,18 +15,28 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
+use axum::extract::Path;
 use checkstream_classifiers::{StreamingPipeline, StreamingConfig};
+use checkstream_core::{StreamAdapter, ParsedChunk};
 use crate::proxy::{self, AppState, generate_request_id};
+use crate::tenant::TenantRuntime;
 
 pub fn create_router(state: AppState) -> Router {
     Router::new()
+        // Health and metrics (tenant-agnostic)
         .route("/health", get(health_check))
         .route("/health/live", get(liveness_check))
         .route("/health/ready", get(readiness_check))
         .route("/metrics", get(metrics))
+        // Chat completions - default tenant
         .route("/v1/chat/completions", post(chat_completions))
+        // Chat completions - tenant-prefixed route
+        .route("/:tenant_id/v1/chat/completions", post(chat_completions_with_tenant))
+        // Audit endpoints
         .route("/audit", get(audit_query))
         .route("/audit/stats", get(audit_stats))
+        // Tenant info endpoint
+        .route("/tenants", get(list_tenants))
         .fallback(fallback)
         .with_state(state)
 }
@@ -237,16 +247,60 @@ struct Delta {
     content: Option<String>,
 }
 
-/// Main chat completions handler
+/// Main chat completions handler (uses tenant from header or API key, falls back to default)
 async fn chat_completions(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(req): Json<ChatCompletionRequest>,
 ) -> Result<Response, AppError> {
+    // Resolve tenant from headers/API key
+    let tenant = state.tenant_resolver.resolve(&headers, "/v1/chat/completions");
+    chat_completions_internal(state, tenant, headers, req).await
+}
+
+/// Chat completions handler with explicit tenant from path
+async fn chat_completions_with_tenant(
+    State(state): State<AppState>,
+    Path(tenant_id): Path<String>,
+    headers: HeaderMap,
+    Json(req): Json<ChatCompletionRequest>,
+) -> Result<Response, AppError> {
+    // Resolve tenant from path, falling back to header/API key resolution
+    let tenant = state.tenant_resolver.get(&tenant_id)
+        .unwrap_or_else(|| state.tenant_resolver.resolve(&headers, &format!("/{}/v1/chat/completions", tenant_id)));
+
+    chat_completions_internal(state, tenant, headers, req).await
+}
+
+/// List configured tenants
+async fn list_tenants(
+    State(state): State<AppState>,
+) -> Json<serde_json::Value> {
+    let tenants: Vec<serde_json::Value> = state.tenant_resolver.list_tenants()
+        .iter()
+        .map(|id| json!({ "id": id }))
+        .collect();
+
+    Json(json!({
+        "tenants": tenants,
+        "multi_tenant_enabled": state.tenant_resolver.is_multi_tenant()
+    }))
+}
+
+/// Internal chat completions handler (shared by default and tenant-prefixed routes)
+async fn chat_completions_internal(
+    state: AppState,
+    tenant: Arc<TenantRuntime>,
+    headers: HeaderMap,
+    req: ChatCompletionRequest,
+) -> Result<Response, AppError> {
     // Generate unique request ID for audit trail
     let request_id = generate_request_id();
-    info!("Received chat completion request for model: {} (request_id: {})", req.model, request_id);
-    metrics::counter!("checkstream_requests_total").increment(1);
+    info!(
+        "Received chat completion request for model: {} tenant: {} (request_id: {})",
+        req.model, tenant.id, request_id
+    );
+    metrics::counter!("checkstream_requests_total", "tenant" => tenant.id.clone()).increment(1);
 
     // Extract the user prompt (last user message)
     let prompt = extract_prompt(&req.messages)?;
@@ -263,24 +317,25 @@ async fn chat_completions(
     // Forward request to backend LLM
     if req.stream {
         // Streaming response path with Phase 2: Midstream checks
-        handle_streaming_request(state, req, headers, request_id).await
+        handle_streaming_request(state, tenant, req, headers, request_id).await
     } else {
         // Non-streaming response path
-        handle_non_streaming_request(state, req, headers, request_id).await
+        handle_non_streaming_request(state, tenant, req, headers, request_id).await
     }
 }
 
 /// Handle non-streaming chat completion (complete response at once)
 async fn handle_non_streaming_request(
     state: AppState,
+    tenant: Arc<TenantRuntime>,
     req: ChatCompletionRequest,
     headers: HeaderMap,
     request_id: String,
 ) -> Result<Response, AppError> {
-    info!("Handling non-streaming request (request_id: {})", request_id);
+    info!("Handling non-streaming request for tenant: {} (request_id: {})", tenant.id, request_id);
 
-    // Forward to backend
-    let backend_url = format!("{}/chat/completions", state.config.backend_url);
+    // Forward to tenant-specific backend
+    let backend_url = format!("{}/chat/completions", tenant.backend_url);
     let auth_header = headers.get("authorization")
         .and_then(|h| h.to_str().ok())
         .unwrap_or("");
@@ -313,17 +368,21 @@ async fn handle_non_streaming_request(
 /// Handle streaming chat completion with Phase 2: Midstream checks
 async fn handle_streaming_request(
     state: AppState,
+    tenant: Arc<TenantRuntime>,
     mut req: ChatCompletionRequest,
     headers: HeaderMap,
     request_id: String,
 ) -> Result<Response, AppError> {
-    info!("Handling streaming request with midstream checks (request_id: {})", request_id);
+    info!(
+        "Handling streaming request for tenant: {} with midstream checks (request_id: {})",
+        tenant.id, request_id
+    );
 
     // Ensure stream is enabled
     req.stream = true;
 
-    // Forward to backend
-    let backend_url = format!("{}/chat/completions", state.config.backend_url);
+    // Forward to tenant-specific backend
+    let backend_url = format!("{}/chat/completions", tenant.backend_url);
     let auth_header = headers.get("authorization")
         .and_then(|h| h.to_str().ok())
         .unwrap_or("");
@@ -341,26 +400,26 @@ async fn handle_streaming_request(
         return Err(AppError::BackendError(backend_response.status()));
     }
 
-    // Create streaming pipeline for Phase 2: Midstream checks
+    // Create streaming pipeline for Phase 2: Midstream checks using tenant-specific settings
     let streaming_config = StreamingConfig {
-        context_chunks: state.config.pipelines.streaming.context_chunks,
-        max_buffer_size: state.config.pipelines.streaming.max_buffer_size,
+        context_chunks: tenant.pipeline_settings.streaming.context_chunks,
+        max_buffer_size: tenant.pipeline_settings.streaming.max_buffer_size,
         chunk_delimiter: " ".to_string(),
     };
 
-    let midstream_pipeline = state.pipelines.midstream.clone();
+    let midstream_pipeline = tenant.pipelines.midstream.clone();
     let streaming = Arc::new(Mutex::new(
         StreamingPipeline::new(midstream_pipeline, streaming_config)
     ));
 
-    let chunk_threshold = state.config.pipelines.chunk_threshold;
+    let chunk_threshold = tenant.pipeline_settings.chunk_threshold;
     let full_text = Arc::new(Mutex::new(String::new()));
     let state_for_egress = state.clone();
     let full_text_for_egress = full_text.clone();
     let request_id_for_egress = request_id.clone();
 
     // Spawn async task to execute Phase 3 after stream completes
-    let egress_handle = tokio::spawn(async move {
+    let _egress_handle = tokio::spawn(async move {
         // Wait a bit to ensure stream has collected text
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
@@ -373,7 +432,7 @@ async fn handle_streaming_request(
         if !text.is_empty() {
             // **Phase 3: Egress** - Final compliance check
             match proxy::execute_egress(&state_for_egress, &text, &request_id_for_egress).await {
-                Ok(result) => {
+                Ok(_result) => {
                     info!("Phase 3 completed successfully (request_id: {})", request_id_for_egress);
                 }
                 Err(e) => {
@@ -383,9 +442,10 @@ async fn handle_streaming_request(
         }
     });
 
-    // Clone state and request_id for midstream processing
+    // Clone for midstream processing
     let state_for_midstream = state.clone();
     let request_id_for_midstream = request_id.clone();
+    let stream_adapter = tenant.stream_adapter.clone();
 
     // Convert backend stream to SSE stream with midstream checks
     let stream = backend_response.bytes_stream()
@@ -394,46 +454,50 @@ async fn handle_streaming_request(
             let full_text = full_text.clone();
             let state = state_for_midstream.clone();
             let req_id = request_id_for_midstream.clone();
+            let adapter = stream_adapter.clone();
 
             async move {
                 match chunk_result {
                     Ok(bytes) => {
                         let text = String::from_utf8_lossy(&bytes).to_string();
 
-                        // Parse SSE chunk
-                        if let Some(content) = extract_sse_content(&text) {
-                            // Store for Phase 3
-                            {
-                                let mut full = full_text.lock().await;
-                                full.push_str(&content);
-                            }
+                        // Use tenant-specific stream adapter to parse the chunk
+                        let parsed_chunks = adapter.parse(&text);
 
-                            // **Phase 2: Midstream** - Check this chunk
-                            let mut streaming = streaming.lock().await;
-                            match proxy::execute_midstream_chunk(
-                                &state,
-                                &mut *streaming,
-                                content.clone(),
-                                chunk_threshold,
-                                &req_id,
-                            ).await {
-                                Ok(result) => {
-                                    if result.redacted {
-                                        // Redact this chunk
-                                        warn!("Chunk redacted by midstream pipeline (request_id: {})", req_id);
-                                        Some(Ok::<String, std::io::Error>("[REDACTED]".to_string()))
-                                    } else {
-                                        Some(Ok::<String, std::io::Error>(text))
+                        // Process each parsed chunk
+                        for parsed in &parsed_chunks {
+                            if let ParsedChunk::Content { text: content, .. } = parsed {
+                                // Store for Phase 3
+                                {
+                                    let mut full = full_text.lock().await;
+                                    full.push_str(content);
+                                }
+
+                                // **Phase 2: Midstream** - Check this chunk
+                                let mut streaming = streaming.lock().await;
+                                match proxy::execute_midstream_chunk(
+                                    &state,
+                                    &mut *streaming,
+                                    content.clone(),
+                                    chunk_threshold,
+                                    &req_id,
+                                ).await {
+                                    Ok(result) => {
+                                        if result.redacted {
+                                            warn!("Chunk redacted by midstream pipeline (request_id: {})", req_id);
+                                            return Some(Ok::<String, std::io::Error>("[REDACTED]".to_string()));
+                                        }
+                                    }
+                                    Err(e) => {
+                                        error!("Midstream check failed: {} (request_id: {})", e, req_id);
+                                        // Pass through on error
                                     }
                                 }
-                                Err(e) => {
-                                    error!("Midstream check failed: {} (request_id: {})", e, req_id);
-                                    Some(Ok::<String, std::io::Error>(text)) // Pass through on error
-                                }
                             }
-                        } else {
-                            Some(Ok::<String, std::io::Error>(text))
                         }
+
+                        // Return original text if no redaction needed
+                        Some(Ok::<String, std::io::Error>(text))
                     }
                     Err(e) => {
                         error!("Stream error: {}", e);
@@ -443,15 +507,19 @@ async fn handle_streaming_request(
             }
         });
 
-    // Return SSE response
+    // Return SSE response with tenant-specific content type
     let mut response = Response::new(axum::body::Body::from_stream(stream));
     response.headers_mut().insert(
         "Content-Type",
-        HeaderValue::from_static("text/event-stream")
+        HeaderValue::from_str(tenant.stream_adapter.content_type()).unwrap_or(HeaderValue::from_static("text/event-stream"))
     );
     response.headers_mut().insert(
         "Cache-Control",
         HeaderValue::from_static("no-cache")
+    );
+    response.headers_mut().insert(
+        "X-CheckStream-Tenant",
+        HeaderValue::from_str(&tenant.id).unwrap_or(HeaderValue::from_static("default"))
     );
 
     Ok(response)
@@ -465,27 +533,6 @@ fn extract_prompt(messages: &[Message]) -> Result<String, AppError> {
         .find(|m| m.role == "user")
         .map(|m| m.content.clone())
         .ok_or_else(|| AppError::InvalidRequest("No user message found".to_string()))
-}
-
-/// Extract content from SSE data chunk
-fn extract_sse_content(sse_data: &str) -> Option<String> {
-    // Parse SSE format: "data: {...}\n\n"
-    for line in sse_data.lines() {
-        if let Some(json_str) = line.strip_prefix("data: ") {
-            if json_str == "[DONE]" {
-                return None;
-            }
-
-            if let Ok(chunk) = serde_json::from_str::<StreamChunk>(json_str) {
-                if let Some(choice) = chunk.choices.first() {
-                    if let Some(content) = &choice.delta.content {
-                        return Some(content.clone());
-                    }
-                }
-            }
-        }
-    }
-    None
 }
 
 /// Create blocked response

@@ -17,8 +17,10 @@ use tracing::{info, warn};
 mod config;
 mod proxy;
 mod routes;
+mod tenant;
 
 use config::ProxyConfig;
+pub use tenant::{TenantRuntime, TenantResolver};
 
 /// Global shutdown flag
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
