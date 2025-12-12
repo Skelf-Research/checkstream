@@ -21,6 +21,8 @@ pub mod streaming;
 pub mod pii;
 pub mod toxicity;
 pub mod patterns;
+pub mod prompt_injection;
+pub mod financial_advice;
 
 pub use classifier::{Classifier, ClassificationResult, ClassifierTier};
 pub use config::{
@@ -49,4 +51,6 @@ pub mod prelude {
     pub use crate::pii::PiiClassifier;
     pub use crate::toxicity::ToxicityClassifier;
     pub use crate::patterns::PatternClassifier;
+    pub use crate::prompt_injection::PromptInjectionClassifier;
+    pub use crate::financial_advice::FinancialAdviceClassifier;
 }

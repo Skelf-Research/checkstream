@@ -1,12 +1,13 @@
 //! HTTP routes and handlers
 
 use axum::{
-    extract::State,
+    extract::{Query, State},
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
+use checkstream_telemetry::{AuditQuery as TelemetryAuditQuery, AuditSeverity};
 use futures_util::stream::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -15,38 +16,154 @@ use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
 use checkstream_classifiers::{StreamingPipeline, StreamingConfig};
-use crate::proxy::{self, AppState};
+use crate::proxy::{self, AppState, generate_request_id};
 
 pub fn create_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health_check))
+        .route("/health/live", get(liveness_check))
+        .route("/health/ready", get(readiness_check))
         .route("/metrics", get(metrics))
         .route("/v1/chat/completions", post(chat_completions))
+        .route("/audit", get(audit_query))
+        .route("/audit/stats", get(audit_stats))
         .fallback(fallback)
         .with_state(state)
 }
 
+/// Basic health check - always returns OK if server is running
 async fn health_check() -> &'static str {
     "OK"
 }
 
-async fn metrics() -> String {
-    // Return Prometheus metrics
-    // The metrics are automatically rendered by the exporter
-    // This endpoint should return the handle's render output
+/// Liveness probe - indicates if the service is alive
+/// Returns 200 if the service is running, even if not ready to serve traffic
+async fn liveness_check() -> Json<serde_json::Value> {
+    Json(json!({
+        "status": "alive",
+        "timestamp": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+    }))
+}
 
-    // For now, return a simple response
-    // TODO: Store the PrometheusHandle in AppState for proper rendering
+/// Readiness probe - indicates if the service is ready to serve traffic
+/// Checks that all components are initialized
+async fn readiness_check(State(state): State<AppState>) -> Result<Json<serde_json::Value>, AppError> {
+    let classifier_count = state.registry.count();
 
-    let mut metrics = String::new();
-    metrics.push_str("# HELP checkstream_requests_total Total number of requests processed\n");
-    metrics.push_str("# TYPE checkstream_requests_total counter\n");
-    metrics.push_str("# HELP checkstream_decisions_total Total number of pipeline decisions\n");
-    metrics.push_str("# TYPE checkstream_decisions_total counter\n");
-    metrics.push_str("# HELP checkstream_pipeline_latency_us Pipeline execution latency in microseconds\n");
-    metrics.push_str("# TYPE checkstream_pipeline_latency_us histogram\n");
+    // Check if we have classifiers loaded
+    if classifier_count == 0 {
+        return Err(AppError::InternalError("No classifiers loaded".to_string()));
+    }
 
-    metrics
+    // Check if policy engine has policies (optional - may be valid with no policies)
+    let policy_count = state.policy_engine.read().unwrap().policies().len();
+
+    Ok(Json(json!({
+        "status": "ready",
+        "components": {
+            "classifiers": classifier_count,
+            "policies": policy_count,
+            "audit_service": "ok"
+        },
+        "timestamp": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+    })))
+}
+
+async fn metrics(State(state): State<AppState>) -> String {
+    // Render actual Prometheus metrics from the handle
+    state.metrics_handle.render()
+}
+
+/// Audit query request parameters
+#[derive(Debug, Deserialize)]
+struct AuditQueryParams {
+    /// Filter by event type
+    event_type: Option<String>,
+    /// Filter by request ID
+    request_id: Option<String>,
+    /// Filter by phase (ingress/midstream/egress)
+    phase: Option<String>,
+    /// Minimum severity (info/warning/high/critical)
+    min_severity: Option<String>,
+    /// Maximum number of results
+    limit: Option<usize>,
+}
+
+/// Audit query handler
+async fn audit_query(
+    State(state): State<AppState>,
+    Query(params): Query<AuditQueryParams>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let mut query = TelemetryAuditQuery::new();
+
+    if let Some(event_type) = params.event_type {
+        query = query.event_type(&event_type);
+    }
+
+    if let Some(request_id) = params.request_id {
+        query = query.request_id(&request_id);
+    }
+
+    if let Some(phase) = params.phase {
+        query = query.phase(&phase);
+    }
+
+    if let Some(severity) = params.min_severity {
+        let min_sev = match severity.to_lowercase().as_str() {
+            "info" => AuditSeverity::Info,
+            "warning" => AuditSeverity::Warning,
+            "high" => AuditSeverity::High,
+            "critical" => AuditSeverity::Critical,
+            _ => AuditSeverity::Info,
+        };
+        query = query.min_severity(min_sev);
+    }
+
+    if let Some(limit) = params.limit {
+        query = query.limit(limit);
+    }
+
+    let events = state.audit_service.query(&query)
+        .map_err(|e| AppError::InternalError(format!("Audit query failed: {}", e)))?;
+
+    let events_json: Vec<serde_json::Value> = events.iter().map(|e| {
+        json!({
+            "timestamp": e.event.timestamp.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs(),
+            "event_type": e.event.event_type,
+            "severity": format!("{:?}", e.event.severity),
+            "request_id": e.request_id,
+            "session_id": e.session_id,
+            "phase": e.phase,
+            "model": e.model,
+            "data": e.event.data,
+        })
+    }).collect();
+
+    Ok(Json(json!({
+        "count": events_json.len(),
+        "events": events_json
+    })))
+}
+
+/// Audit stats handler
+async fn audit_stats(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let stats = state.audit_service.stats()
+        .map_err(|e| AppError::InternalError(format!("Audit stats failed: {}", e)))?;
+
+    Ok(Json(json!({
+        "total_events": stats.total_events,
+        "critical_events": stats.critical_events,
+        "high_severity_events": stats.high_severity_events,
+        "events_last_24h": stats.events_last_24h
+    })))
 }
 
 /// OpenAI-compatible chat completions request
@@ -126,7 +243,9 @@ async fn chat_completions(
     headers: HeaderMap,
     Json(req): Json<ChatCompletionRequest>,
 ) -> Result<Response, AppError> {
-    info!("Received chat completion request for model: {}", req.model);
+    // Generate unique request ID for audit trail
+    let request_id = generate_request_id();
+    info!("Received chat completion request for model: {} (request_id: {})", req.model, request_id);
     metrics::counter!("checkstream_requests_total").increment(1);
 
     // Extract the user prompt (last user message)
@@ -134,20 +253,20 @@ async fn chat_completions(
     debug!("Extracted prompt: {}", prompt);
 
     // **Phase 1: Ingress** - Validate prompt before sending to LLM
-    let ingress_result = proxy::execute_ingress(&state, &prompt).await?;
+    let ingress_result = proxy::execute_ingress(&state, &prompt, &request_id).await?;
 
     if ingress_result.blocked {
-        warn!("Request blocked by ingress pipeline");
+        warn!("Request blocked by ingress pipeline (request_id: {})", request_id);
         return Ok(blocked_response(&req).into_response());
     }
 
     // Forward request to backend LLM
     if req.stream {
         // Streaming response path with Phase 2: Midstream checks
-        handle_streaming_request(state, req, headers).await
+        handle_streaming_request(state, req, headers, request_id).await
     } else {
         // Non-streaming response path
-        handle_non_streaming_request(state, req, headers).await
+        handle_non_streaming_request(state, req, headers, request_id).await
     }
 }
 
@@ -156,8 +275,9 @@ async fn handle_non_streaming_request(
     state: AppState,
     req: ChatCompletionRequest,
     headers: HeaderMap,
+    request_id: String,
 ) -> Result<Response, AppError> {
-    info!("Handling non-streaming request");
+    info!("Handling non-streaming request (request_id: {})", request_id);
 
     // Forward to backend
     let backend_url = format!("{}/chat/completions", state.config.backend_url);
@@ -174,18 +294,18 @@ async fn handle_non_streaming_request(
         .await?;
 
     if !backend_response.status().is_success() {
-        error!("Backend request failed: {}", backend_response.status());
+        error!("Backend request failed: {} (request_id: {})", backend_response.status(), request_id);
         return Err(AppError::BackendError(backend_response.status()));
     }
 
     let response_text = backend_response.text().await?;
-    let mut response: ChatCompletionResponse = serde_json::from_str(&response_text)?;
+    let response: ChatCompletionResponse = serde_json::from_str(&response_text)?;
 
     // **Phase 3: Egress** - Compliance check on complete response
     let assistant_message = &response.choices[0].message.content;
-    let egress_result = proxy::execute_egress(&state, assistant_message).await?;
+    let egress_result = proxy::execute_egress(&state, assistant_message, &request_id).await?;
 
-    info!("Non-streaming request complete");
+    info!("Non-streaming request complete (request_id: {})", request_id);
 
     Ok(Json(response).into_response())
 }
@@ -195,8 +315,9 @@ async fn handle_streaming_request(
     state: AppState,
     mut req: ChatCompletionRequest,
     headers: HeaderMap,
+    request_id: String,
 ) -> Result<Response, AppError> {
-    info!("Handling streaming request with midstream checks");
+    info!("Handling streaming request with midstream checks (request_id: {})", request_id);
 
     // Ensure stream is enabled
     req.stream = true;
@@ -216,7 +337,7 @@ async fn handle_streaming_request(
         .await?;
 
     if !backend_response.status().is_success() {
-        error!("Backend streaming request failed: {}", backend_response.status());
+        error!("Backend streaming request failed: {} (request_id: {})", backend_response.status(), request_id);
         return Err(AppError::BackendError(backend_response.status()));
     }
 
@@ -236,6 +357,7 @@ async fn handle_streaming_request(
     let full_text = Arc::new(Mutex::new(String::new()));
     let state_for_egress = state.clone();
     let full_text_for_egress = full_text.clone();
+    let request_id_for_egress = request_id.clone();
 
     // Spawn async task to execute Phase 3 after stream completes
     let egress_handle = tokio::spawn(async move {
@@ -250,23 +372,28 @@ async fn handle_streaming_request(
 
         if !text.is_empty() {
             // **Phase 3: Egress** - Final compliance check
-            match proxy::execute_egress(&state_for_egress, &text).await {
+            match proxy::execute_egress(&state_for_egress, &text, &request_id_for_egress).await {
                 Ok(result) => {
-                    info!("Phase 3 completed successfully");
-                    // TODO: Store audit trail in telemetry system
+                    info!("Phase 3 completed successfully (request_id: {})", request_id_for_egress);
                 }
                 Err(e) => {
-                    error!("Phase 3 failed: {}", e);
+                    error!("Phase 3 failed: {} (request_id: {})", e, request_id_for_egress);
                 }
             }
         }
     });
+
+    // Clone state and request_id for midstream processing
+    let state_for_midstream = state.clone();
+    let request_id_for_midstream = request_id.clone();
 
     // Convert backend stream to SSE stream with midstream checks
     let stream = backend_response.bytes_stream()
         .filter_map(move |chunk_result| {
             let streaming = streaming.clone();
             let full_text = full_text.clone();
+            let state = state_for_midstream.clone();
+            let req_id = request_id_for_midstream.clone();
 
             async move {
                 match chunk_result {
@@ -284,21 +411,23 @@ async fn handle_streaming_request(
                             // **Phase 2: Midstream** - Check this chunk
                             let mut streaming = streaming.lock().await;
                             match proxy::execute_midstream_chunk(
+                                &state,
                                 &mut *streaming,
                                 content.clone(),
-                                chunk_threshold
+                                chunk_threshold,
+                                &req_id,
                             ).await {
                                 Ok(result) => {
                                     if result.redacted {
                                         // Redact this chunk
-                                        warn!("Chunk redacted by midstream pipeline");
+                                        warn!("Chunk redacted by midstream pipeline (request_id: {})", req_id);
                                         Some(Ok::<String, std::io::Error>("[REDACTED]".to_string()))
                                     } else {
                                         Some(Ok::<String, std::io::Error>(text))
                                     }
                                 }
                                 Err(e) => {
-                                    error!("Midstream check failed: {}", e);
+                                    error!("Midstream check failed: {} (request_id: {})", e, req_id);
                                     Some(Ok::<String, std::io::Error>(text)) // Pass through on error
                                 }
                             }

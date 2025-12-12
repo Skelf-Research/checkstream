@@ -7,7 +7,7 @@ repository.workspace = true
 authors.workspace = true
 
 [features]
-default = []
+default = ["ml-models"]
 ml-models = []
 
 [dependencies]
@@ -47,8 +47,13 @@ num_cpus = { workspace = true }
 dirs = { workspace = true }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["test-util", "macros"] }
+tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
 tracing-subscriber = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "latency_benchmarks"
+harness = false
 
 [[example]]
 name = "classifier_loading"
@@ -77,3 +82,7 @@ path = "../../examples/dynamic_model_loading.rs"
 [[example]]
 name = "full_dynamic_pipeline"
 path = "../../examples/full_dynamic_pipeline.rs"
+
+[[example]]
+name = "test_hf_model"
+path = "../../examples/test_hf_model.rs"

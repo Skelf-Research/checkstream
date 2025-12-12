@@ -58,6 +58,9 @@ pub struct ClassificationMetadata {
     /// Model name or version
     pub model: Option<String>,
 
+    /// All class scores (for multi-class classifiers)
+    pub all_scores: Option<Vec<(String, f32)>>,
+
     /// Additional key-value pairs
     pub extra: Vec<(String, String)>,
 }
