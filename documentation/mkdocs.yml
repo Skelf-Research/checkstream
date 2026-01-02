@@ -1,0 +1,92 @@
+site_name: CheckStream Documentation
+site_description: Production-ready streaming guardrails for LLM safety and compliance
+site_url: https://checkstream.dev
+repo_url: https://github.com/checkstream/checkstream
+repo_name: checkstream/checkstream
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search
+  - tags
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details
+  - pymdownx.snippets
+  - admonition
+  - tables
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/checkstream/checkstream
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Installation: getting-started/installation.md
+    - Quick Start: getting-started/quickstart.md
+    - Your First Policy: getting-started/first-policy.md
+  - Architecture:
+    - Overview: architecture/overview.md
+    - Three-Phase Pipeline: architecture/pipeline.md
+    - Classifier System: architecture/classifiers.md
+  - Configuration:
+    - Proxy Configuration: configuration/proxy.md
+    - Classifier Configuration: configuration/classifiers.md
+    - Pipeline Configuration: configuration/pipelines.md
+  - Guides:
+    - Policy Engine: guides/policy-engine.md
+    - Model Loading: guides/model-loading.md
+    - Multi-Tenant Setup: guides/multi-tenant.md
+    - Regulatory Compliance: guides/compliance.md
+  - Reference:
+    - API Reference: reference/api.md
+    - Policy Language: reference/policy-language.md
+    - Metrics & Telemetry: reference/metrics.md
+  - Examples:
+    - Financial Compliance: examples/financial-compliance.md
+    - Healthcare: examples/healthcare.md
+    - Content Moderation: examples/content-moderation.md
+  - Deployment:
+    - Docker: deployment/docker.md
+    - Kubernetes: deployment/kubernetes.md
