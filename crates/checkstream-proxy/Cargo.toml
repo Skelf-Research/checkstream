@@ -18,10 +18,10 @@ path = "src/main.rs"
 
 [dependencies]
 # Workspace crates
-checkstream-core = { path = "../checkstream-core" }
-checkstream-policy = { path = "../checkstream-policy" }
-checkstream-classifiers = { path = "../checkstream-classifiers" }
-checkstream-telemetry = { path = "../checkstream-telemetry" }
+checkstream-core = { version = "0.1.0", path = "../checkstream-core" }
+checkstream-policy = { version = "0.1.0", path = "../checkstream-policy" }
+checkstream-classifiers = { version = "0.1.0", path = "../checkstream-classifiers" }
+checkstream-telemetry = { version = "0.1.0", path = "../checkstream-telemetry" }
 
 # Async runtime and HTTP
 tokio = { workspace = true }

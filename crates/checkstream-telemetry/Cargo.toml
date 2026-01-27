@@ -14,7 +14,7 @@ readme = "README.md"
 
 [dependencies]
 # Workspace crates
-checkstream-core = { path = "../checkstream-core" }
+checkstream-core = { version = "0.1.0", path = "../checkstream-core" }
 
 # Async runtime
 tokio = { workspace = true }
