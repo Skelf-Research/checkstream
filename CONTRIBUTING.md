@@ -14,7 +14,7 @@ Thank you for your interest in contributing to CheckStream! This document provid
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/checkstream.git
+git clone https://github.com/Skelf-Research/checkstream.git
 cd checkstream
 
 # Build the project

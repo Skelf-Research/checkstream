@@ -4,7 +4,7 @@ Core types, token buffer, and error handling for the CheckStream guardrail platf
 
 [![Crates.io](https://img.shields.io/crates/v/checkstream-core.svg)](https://crates.io/crates/checkstream-core)
 [![Documentation](https://docs.rs/checkstream-core/badge.svg)](https://docs.rs/checkstream-core)
-[![License](https://img.shields.io/crates/l/checkstream-core.svg)](https://github.com/skelf-research/checkstream/blob/main/LICENSE)
+[![License](https://img.shields.io/crates/l/checkstream-core.svg)](https://github.com/Skelf-Research/checkstream/blob/main/LICENSE)
 
 ## Overview
 
@@ -78,12 +78,12 @@ Defines actions that can be taken based on policy evaluation:
 
 - [Full Documentation](https://docs.skelfresearch.com/checkstream)
 - [API Reference](https://docs.rs/checkstream-core)
-- [GitHub Repository](https://github.com/skelf-research/checkstream)
+- [GitHub Repository](https://github.com/Skelf-Research/checkstream)
 
 ## License
 
-Apache-2.0 - See [LICENSE](https://github.com/skelf-research/checkstream/blob/main/LICENSE) for details.
+Apache-2.0 - See [LICENSE](https://github.com/Skelf-Research/checkstream/blob/main/LICENSE) for details.
 
 ## Part of CheckStream
 
-This crate is part of the [CheckStream](https://github.com/skelf-research/checkstream) guardrail platform by [Skelf Research](https://skelfresearch.com).
+This crate is part of the [CheckStream](https://github.com/Skelf-Research/checkstream) guardrail platform by [Skelf Research](https://skelfresearch.com).

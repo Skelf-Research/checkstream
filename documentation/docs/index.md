@@ -83,7 +83,7 @@ classifiers:
 
 ```bash
 # Clone and build
-git clone https://github.com/checkstream/checkstream
+git clone https://github.com/Skelf-Research/checkstream
 cd checkstream
 cargo build --release --features ml-models
 

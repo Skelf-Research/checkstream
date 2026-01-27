@@ -4,7 +4,7 @@ YAML-based policy engine for LLM safety rules, triggers, and actions.
 
 [![Crates.io](https://img.shields.io/crates/v/checkstream-policy.svg)](https://crates.io/crates/checkstream-policy)
 [![Documentation](https://docs.rs/checkstream-policy/badge.svg)](https://docs.rs/checkstream-policy)
-[![License](https://img.shields.io/crates/l/checkstream-policy.svg)](https://github.com/skelf-research/checkstream/blob/main/LICENSE)
+[![License](https://img.shields.io/crates/l/checkstream-policy.svg)](https://github.com/Skelf-Research/checkstream/blob/main/LICENSE)
 
 ## Overview
 
@@ -146,12 +146,12 @@ CheckStream includes pre-built policy packs:
 - [Full Documentation](https://docs.skelfresearch.com/checkstream)
 - [Policy Guide](https://docs.skelfresearch.com/checkstream/policies)
 - [API Reference](https://docs.rs/checkstream-policy)
-- [GitHub Repository](https://github.com/skelf-research/checkstream)
+- [GitHub Repository](https://github.com/Skelf-Research/checkstream)
 
 ## License
 
-Apache-2.0 - See [LICENSE](https://github.com/skelf-research/checkstream/blob/main/LICENSE) for details.
+Apache-2.0 - See [LICENSE](https://github.com/Skelf-Research/checkstream/blob/main/LICENSE) for details.
 
 ## Part of CheckStream
 
-This crate is part of the [CheckStream](https://github.com/skelf-research/checkstream) guardrail platform by [Skelf Research](https://skelfresearch.com).
+This crate is part of the [CheckStream](https://github.com/Skelf-Research/checkstream) guardrail platform by [Skelf Research](https://skelfresearch.com).

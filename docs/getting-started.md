@@ -102,7 +102,7 @@ pip install checkstream[dev]    # For development
 pip install checkstream[all]    # Everything
 
 # From source
-git clone https://github.com/checkstream/checkstream.git
+git clone https://github.com/Skelf-Research/checkstream.git
 cd checkstream
 pip install -e .
 ```

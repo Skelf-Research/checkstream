@@ -1,7 +1,7 @@
 site_name: CheckStream Documentation
 site_description: Production-ready streaming guardrails for LLM safety and compliance
 site_url: https://checkstream.dev
-repo_url: https://github.com/checkstream/checkstream
+repo_url: https://github.com/Skelf-Research/checkstream
 repo_name: checkstream/checkstream
 
 theme:
@@ -58,7 +58,7 @@ markdown_extensions:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/checkstream/checkstream
+      link: https://github.com/Skelf-Research/checkstream
 
 nav:
   - Home: index.md

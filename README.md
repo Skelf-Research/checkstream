@@ -30,7 +30,7 @@ CheckStream is a production-ready Rust guardrail platform that enforces safety, 
 
 ```bash
 # Clone and build
-git clone https://github.com/yourusername/checkstream.git
+git clone https://github.com/Skelf-Research/checkstream.git
 cd checkstream
 cargo build --release --features ml-models
 
@@ -225,7 +225,7 @@ Apache 2.0 - See [LICENSE](LICENSE)
 ## Support
 
 - Documentation: [docs/](docs/)
-- Issues: [GitHub Issues](https://github.com/yourusername/checkstream/issues)
+- Issues: [GitHub Issues](https://github.com/Skelf-Research/checkstream/issues)
 
 ---
 

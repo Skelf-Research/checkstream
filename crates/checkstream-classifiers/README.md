@@ -4,7 +4,7 @@ ML and pattern-based classifiers for toxicity, PII, and prompt injection detecti
 
 [![Crates.io](https://img.shields.io/crates/v/checkstream-classifiers.svg)](https://crates.io/crates/checkstream-classifiers)
 [![Documentation](https://docs.rs/checkstream-classifiers/badge.svg)](https://docs.rs/checkstream-classifiers)
-[![License](https://img.shields.io/crates/l/checkstream-classifiers.svg)](https://github.com/skelf-research/checkstream/blob/main/LICENSE)
+[![License](https://img.shields.io/crates/l/checkstream-classifiers.svg)](https://github.com/Skelf-Research/checkstream/blob/main/LICENSE)
 
 ## Overview
 
@@ -167,12 +167,12 @@ models:
 - [Full Documentation](https://docs.skelfresearch.com/checkstream)
 - [Model Loading Guide](https://docs.skelfresearch.com/checkstream/models)
 - [API Reference](https://docs.rs/checkstream-classifiers)
-- [GitHub Repository](https://github.com/skelf-research/checkstream)
+- [GitHub Repository](https://github.com/Skelf-Research/checkstream)
 
 ## License
 
-Apache-2.0 - See [LICENSE](https://github.com/skelf-research/checkstream/blob/main/LICENSE) for details.
+Apache-2.0 - See [LICENSE](https://github.com/Skelf-Research/checkstream/blob/main/LICENSE) for details.
 
 ## Part of CheckStream
 
-This crate is part of the [CheckStream](https://github.com/skelf-research/checkstream) guardrail platform by [Skelf Research](https://skelfresearch.com).
+This crate is part of the [CheckStream](https://github.com/Skelf-Research/checkstream) guardrail platform by [Skelf Research](https://skelfresearch.com).

@@ -17,7 +17,7 @@ This guide covers installing CheckStream on your system.
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/checkstream/checkstream
+git clone https://github.com/Skelf-Research/checkstream
 cd checkstream
 ```
 
