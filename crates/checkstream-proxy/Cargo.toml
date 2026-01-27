@@ -1,10 +1,16 @@
 [package]
 name = "checkstream-proxy"
+description = "High-performance HTTP/SSE proxy server for LLM guardrails with sub-10ms latency"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
 authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
 
 [[bin]]
 name = "checkstream-proxy"

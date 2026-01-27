@@ -1,6 +1,10 @@
-# CheckStream Proxy
+# checkstream-proxy
 
 High-performance HTTP/SSE proxy for streaming LLM guardrails with sub-10ms latency.
+
+[![Crates.io](https://img.shields.io/crates/v/checkstream-proxy.svg)](https://crates.io/crates/checkstream-proxy)
+[![Documentation](https://docs.rs/checkstream-proxy/badge.svg)](https://docs.rs/checkstream-proxy)
+[![License](https://img.shields.io/crates/l/checkstream-proxy.svg)](https://github.com/skelf-research/checkstream/blob/main/LICENSE)
 
 ## Overview
 
@@ -455,6 +459,17 @@ curl -v https://api.openai.com/v1/models \
 - [FCA Example](../../docs/FCA_EXAMPLE.md)
 - [Streaming Context](../../docs/STREAMING_CONTEXT.md)
 
+## Documentation
+
+- [Full Documentation](https://docs.skelfresearch.com/checkstream)
+- [Getting Started Guide](https://docs.skelfresearch.com/checkstream/getting-started)
+- [API Reference](https://docs.rs/checkstream-proxy)
+- [GitHub Repository](https://github.com/skelf-research/checkstream)
+
 ## License
 
-Apache 2.0 - See [LICENSE](../../LICENSE)
+Apache-2.0 - See [LICENSE](https://github.com/skelf-research/checkstream/blob/main/LICENSE) for details.
+
+## Part of CheckStream
+
+This crate is part of the [CheckStream](https://github.com/skelf-research/checkstream) guardrail platform by [Skelf Research](https://skelfresearch.com).

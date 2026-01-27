@@ -1,10 +1,16 @@
 [package]
 name = "checkstream-policy"
+description = "YAML-based policy engine for LLM safety rules, triggers, and actions"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
 authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
 
 [dependencies]
 # Workspace crates

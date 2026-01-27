@@ -1,10 +1,16 @@
 [package]
 name = "checkstream-classifiers"
+description = "ML and pattern-based classifiers for toxicity, PII, and prompt injection detection"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
 authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
 
 [features]
 default = ["ml-models"]

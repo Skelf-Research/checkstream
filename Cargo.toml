@@ -13,9 +13,12 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.75"
 license = "Apache-2.0"
-repository = "https://github.com/yourusername/checkstream"
-homepage = "https://checkstream.ai"
-authors = ["CheckStream Contributors"]
+repository = "https://github.com/skelf-research/checkstream"
+homepage = "https://docs.skelfresearch.com/checkstream"
+documentation = "https://docs.skelfresearch.com/checkstream"
+authors = ["Skelf Research <dev@skelfresearch.com>"]
+keywords = ["llm", "guardrails", "safety", "compliance", "ai"]
+categories = ["web-programming", "text-processing", "asynchronous"]
 
 [workspace.dependencies]
 # Async runtime and networking

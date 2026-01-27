@@ -1,10 +1,16 @@
 [package]
 name = "checkstream-core"
+description = "Core types, token buffer, and error handling for CheckStream guardrail platform"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
 authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
 
 [dependencies]
 # Async runtime
