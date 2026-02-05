@@ -1,0 +1,63 @@
+[package]
+name = "checkstream-demo"
+description = "Interactive demo and visualization tool for CheckStream guardrails"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[[bin]]
+name = "checkstream-demo"
+path = "src/main.rs"
+
+[dependencies]
+# Workspace crates
+checkstream-core = { version = "0.1.0", path = "../checkstream-core" }
+checkstream-policy = { version = "0.1.0", path = "../checkstream-policy" }
+checkstream-classifiers = { version = "0.1.0", path = "../checkstream-classifiers" }
+checkstream-telemetry = { version = "0.1.0", path = "../checkstream-telemetry" }
+
+# Async runtime and HTTP
+tokio = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+
+# CLI
+clap = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Utilities
+uuid = { workspace = true }
+chrono = { workspace = true }
+rand = { workspace = true }
+parking_lot = { workspace = true }
+futures = { workspace = true }
+futures-util = { workspace = true }
+
+# Embedded assets
+rust-embed = { workspace = true }
+mime_guess = { workspace = true }
+
+# HTTP client (for real proxy mode)
+reqwest = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Pattern matching
+regex = { workspace = true }

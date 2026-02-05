@@ -6,6 +6,7 @@ members = [
     "crates/checkstream-classifiers",
     "crates/checkstream-core",
     "crates/checkstream-telemetry",
+    "crates/checkstream-demo",
 ]
 
 [workspace.package]
@@ -89,6 +90,14 @@ dirs = "5.0"
 proptest = "1.4"
 criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
 tempfile = "3.10"
+
+# Demo crate dependencies
+rust-embed = { version = "8.5", features = ["compression"] }
+tower-http = { version = "0.5", features = ["cors", "fs", "compression-gzip"] }
+chrono = { version = "0.4", features = ["serde"] }
+rand = "0.8"
+parking_lot = "0.12"
+mime_guess = "2.0"
 
 [profile.release]
 opt-level = 3
