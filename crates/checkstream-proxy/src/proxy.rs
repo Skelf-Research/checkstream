@@ -1,34 +1,24 @@
 //! Core proxy logic
 
 use anyhow::Result;
-use checkstream_classifiers::{
-    ClassifierRegistry, ClassifierPipeline, StreamingPipeline,
-};
-use checkstream_policy::{
-    PolicyEngine, ActionExecutor, ActionOutcome, EvaluationResult,
-};
+use checkstream_classifiers::{ClassifierPipeline, ClassifierRegistry, StreamingPipeline};
+use checkstream_policy::{ActionExecutor, ActionOutcome, EvaluationResult, PolicyEngine};
 use checkstream_telemetry::{
-    AuditService, PersistenceConfig, RequestContext, PolicyAuditRecord, PolicySeverity,
+    AuditService, PersistenceConfig, PolicyAuditRecord, PolicySeverity, RequestContext,
 };
 use metrics_exporter_prometheus::PrometheusHandle;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tracing::{debug, info, warn};
 
-use crate::config::{ProxyConfig, MultiTenantConfig};
-use crate::tenant::TenantResolver;
+use crate::config::{MultiTenantConfig, ProxyConfig};
+use crate::tenant::{TenantResolver, TenantRuntime};
 
 /// Application state shared across all requests
 #[derive(Clone)]
 pub struct AppState {
-    /// Loaded configuration
-    pub config: Arc<ProxyConfig>,
-
     /// Classifier registry with all loaded classifiers
     pub registry: Arc<ClassifierRegistry>,
-
-    /// Pre-built pipelines for each phase
-    pub pipelines: Arc<Pipelines>,
 
     /// HTTP client for backend requests
     pub http_client: reqwest::Client,
@@ -38,9 +28,6 @@ pub struct AppState {
 
     /// Policy engine for evaluating rules
     pub policy_engine: Arc<RwLock<PolicyEngine>>,
-
-    /// Action executor for enforcing policies
-    pub action_executor: Arc<ActionExecutor>,
 
     /// Audit service for compliance logging
     pub audit_service: Arc<AuditService>,
@@ -62,35 +49,28 @@ pub struct Pipelines {
 }
 
 impl AppState {
-    /// Initialize application state from configuration
-    pub async fn new(config: ProxyConfig, metrics_handle: PrometheusHandle) -> Result<Self> {
-        // Wrap in multi-tenant config for backward compatibility
-        let multi_config = MultiTenantConfig {
-            default: config,
-            tenants: Default::default(),
-        };
-        Self::new_multi_tenant(multi_config, metrics_handle).await
-    }
-
     /// Initialize application state from multi-tenant configuration
-    pub async fn new_multi_tenant(config: MultiTenantConfig, metrics_handle: PrometheusHandle) -> Result<Self> {
+    pub async fn new_multi_tenant(
+        config: MultiTenantConfig,
+        metrics_handle: PrometheusHandle,
+    ) -> Result<Self> {
         info!("Initializing application state");
 
         // Load classifier registry for default tenant
-        info!("Loading classifiers from: {}", config.default.classifiers_config);
+        info!(
+            "Loading classifiers from: {}",
+            config.default.classifiers_config
+        );
         let registry = ClassifierRegistry::from_file(&config.default.classifiers_config).await?;
         info!("Loaded {} classifiers", registry.count());
-
-        // Build pipelines for each phase (for default tenant)
-        let pipelines = Self::build_pipelines(&config.default, &registry)?;
 
         // Load policy engine for default tenant
         let policy_engine = Self::load_policy_engine(&config.default)?;
         let policy_count = policy_engine.policies().len();
-        info!("Loaded {} policies from: {}", policy_count, config.default.policy_path);
-
-        // Create action executor
-        let action_executor = ActionExecutor::new();
+        info!(
+            "Loaded {} policies from: {}",
+            policy_count, config.default.policy_path
+        );
 
         // Initialize audit service
         let audit_config = PersistenceConfig {
@@ -118,13 +98,10 @@ impl AppState {
         }
 
         Ok(Self {
-            config: Arc::new(config.default),
             registry: Arc::new(registry),
-            pipelines: Arc::new(pipelines),
             http_client,
             metrics_handle,
             policy_engine: Arc::new(RwLock::new(policy_engine)),
-            action_executor: Arc::new(action_executor),
             audit_service: Arc::new(audit_service),
             tenant_resolver: Arc::new(tenant_resolver),
         })
@@ -144,7 +121,10 @@ impl AppState {
                 for entry in std::fs::read_dir(policy_path)? {
                     let entry = entry?;
                     let path = entry.path();
-                    if path.extension().map_or(false, |ext| ext == "yaml" || ext == "yml") {
+                    if path
+                        .extension()
+                        .is_some_and(|ext| ext == "yaml" || ext == "yml")
+                    {
                         if let Err(e) = engine.load_policy(&path) {
                             warn!("Failed to load policy {:?}: {}", path, e);
                         }
@@ -152,46 +132,78 @@ impl AppState {
                 }
             }
         } else {
-            info!("Policy path does not exist, using empty policy engine: {}", config.policy_path);
+            info!(
+                "Policy path does not exist, using empty policy engine: {}",
+                config.policy_path
+            );
         }
 
         Ok(engine)
     }
+}
 
-    /// Build pipelines from configuration
-    fn build_pipelines(config: &ProxyConfig, registry: &ClassifierRegistry) -> Result<Pipelines> {
-        info!("Building pipelines");
+fn evaluate_policies(
+    policy_engine: &RwLock<PolicyEngine>,
+    classifier_scores: HashMap<String, f32>,
+    text: &str,
+) -> Vec<EvaluationResult> {
+    let mut engine = policy_engine.write().unwrap();
+    engine.set_classifier_scores(classifier_scores);
+    engine.evaluate_text(text)
+}
 
-        // Build Phase 1: Ingress pipeline
-        info!("Building ingress pipeline: {}", config.pipelines.ingress_pipeline);
-        let ingress = registry.build_pipeline(&config.pipelines.ingress_pipeline)?;
-
-        // Build Phase 2: Midstream pipeline
-        info!("Building midstream pipeline: {}", config.pipelines.midstream_pipeline);
-        let midstream = registry.build_pipeline(&config.pipelines.midstream_pipeline)?;
-
-        // Build Phase 3: Egress pipeline
-        info!("Building egress pipeline: {}", config.pipelines.egress_pipeline);
-        let egress = registry.build_pipeline(&config.pipelines.egress_pipeline)?;
-
-        Ok(Pipelines {
-            ingress,
-            midstream,
-            egress,
-        })
+fn record_policy_audit(
+    state: &AppState,
+    phase: &str,
+    request_id: &str,
+    action_outcome: &ActionOutcome,
+) {
+    let request_ctx = RequestContext::new(request_id, phase);
+    for audit_record in &action_outcome.audit_records {
+        let policy_record = PolicyAuditRecord {
+            rule_name: audit_record.rule_name.clone(),
+            policy_name: audit_record.policy_name.clone(),
+            category: audit_record.category.clone(),
+            severity: convert_severity(&audit_record.severity),
+            context: audit_record.context.clone(),
+        };
+        state
+            .audit_service
+            .record_from_policy(&policy_record, &request_ctx);
     }
 }
 
-/// Phase 1: Ingress - Validate request before sending to LLM
-pub async fn execute_ingress(
+pub async fn execute_ingress_with_tenant(
     state: &AppState,
+    tenant: &TenantRuntime,
+    prompt: &str,
+    request_id: &str,
+) -> Result<IngressResult> {
+    execute_ingress_internal(
+        state,
+        &tenant.pipelines.ingress,
+        tenant.policy_engine.as_ref(),
+        tenant.action_executor.as_ref(),
+        tenant.pipeline_settings.safety_threshold,
+        prompt,
+        request_id,
+    )
+    .await
+}
+
+async fn execute_ingress_internal(
+    state: &AppState,
+    pipeline: &ClassifierPipeline,
+    policy_engine: &RwLock<PolicyEngine>,
+    action_executor: &ActionExecutor,
+    threshold: f32,
     prompt: &str,
     request_id: &str,
 ) -> Result<IngressResult> {
     debug!("Phase 1: Executing ingress checks on prompt");
 
     let start = std::time::Instant::now();
-    let result = state.pipelines.ingress.execute(prompt).await?;
+    let result = pipeline.execute(prompt).await?;
     let classifier_latency = start.elapsed();
 
     // Record classifier metrics
@@ -202,34 +214,22 @@ pub async fn execute_ingress(
     let classifier_scores = extract_classifier_scores(&result);
 
     // Evaluate policies
-    let policy_results = {
-        let mut engine = state.policy_engine.write().unwrap();
-        engine.set_classifier_scores(classifier_scores);
-        engine.evaluate_text(prompt)
-    };
+    let policy_results = evaluate_policies(policy_engine, classifier_scores, prompt);
 
     // Execute actions from triggered policies
-    let action_outcome = state.action_executor.execute(&policy_results);
+    let action_outcome = action_executor.execute(&policy_results);
 
     let latency = start.elapsed();
 
     // Check for blocking - either from action outcome or threshold
-    let should_block = action_outcome.should_stop || result.final_decision
-        .as_ref()
-        .map_or(false, |d| d.score > state.config.pipelines.safety_threshold);
+    let should_block = action_outcome.should_stop
+        || result
+            .final_decision
+            .as_ref()
+            .is_some_and(|d| d.score > threshold);
 
     // Record audit events for triggered policies
-    let request_ctx = RequestContext::new(request_id, "ingress");
-    for audit_record in &action_outcome.audit_records {
-        let policy_record = PolicyAuditRecord {
-            rule_name: audit_record.rule_name.clone(),
-            policy_name: audit_record.policy_name.clone(),
-            category: audit_record.category.clone(),
-            severity: convert_severity(&audit_record.severity),
-            context: audit_record.context.clone(),
-        };
-        state.audit_service.record_from_policy(&policy_record, &request_ctx);
-    }
+    record_policy_audit(state, "ingress", request_id, &action_outcome);
 
     if should_block {
         metrics::counter!("checkstream_decisions_total", "phase" => "ingress", "action" => "block")
@@ -238,7 +238,10 @@ pub async fn execute_ingress(
         if action_outcome.should_stop {
             info!(
                 "Phase 1: BLOCKED by policy - Rules: {:?}, Latency: {:?}",
-                policy_results.iter().map(|r| &r.rule_name).collect::<Vec<_>>(),
+                policy_results
+                    .iter()
+                    .map(|r| &r.rule_name)
+                    .collect::<Vec<_>>(),
                 latency
             );
         } else {
@@ -263,16 +266,33 @@ pub async fn execute_ingress(
 
     Ok(IngressResult {
         blocked: should_block,
-        result,
-        latency,
-        policy_results,
         action_outcome,
     })
 }
 
-/// Phase 2: Midstream - Check streaming chunks as they arrive
-pub async fn execute_midstream_chunk(
+pub async fn execute_midstream_chunk_with_tenant(
     state: &AppState,
+    tenant: &TenantRuntime,
+    streaming: &mut StreamingPipeline,
+    chunk: String,
+    request_id: &str,
+) -> Result<MidstreamResult> {
+    execute_midstream_internal(
+        state,
+        tenant.policy_engine.as_ref(),
+        tenant.action_executor.as_ref(),
+        streaming,
+        chunk,
+        tenant.pipeline_settings.chunk_threshold,
+        request_id,
+    )
+    .await
+}
+
+async fn execute_midstream_internal(
+    state: &AppState,
+    policy_engine: &RwLock<PolicyEngine>,
+    action_executor: &ActionExecutor,
     streaming: &mut StreamingPipeline,
     chunk: String,
     threshold: f32,
@@ -292,34 +312,21 @@ pub async fn execute_midstream_chunk(
     let classifier_scores = extract_classifier_scores(&result);
 
     // Evaluate policies on the chunk
-    let policy_results = {
-        let mut engine = state.policy_engine.write().unwrap();
-        engine.set_classifier_scores(classifier_scores);
-        engine.evaluate_text(&chunk)
-    };
+    let policy_results = evaluate_policies(policy_engine, classifier_scores, &chunk);
 
     // Execute actions from triggered policies
-    let action_outcome = state.action_executor.execute(&policy_results);
-
-    let latency = start.elapsed();
+    let action_outcome = action_executor.execute(&policy_results);
 
     // Record audit events for triggered policies
-    let request_ctx = RequestContext::new(request_id, "midstream");
-    for audit_record in &action_outcome.audit_records {
-        let policy_record = PolicyAuditRecord {
-            rule_name: audit_record.rule_name.clone(),
-            policy_name: audit_record.policy_name.clone(),
-            category: audit_record.category.clone(),
-            severity: convert_severity(&audit_record.severity),
-            context: audit_record.context.clone(),
-        };
-        state.audit_service.record_from_policy(&policy_record, &request_ctx);
-    }
+    record_policy_audit(state, "midstream", request_id, &action_outcome);
 
     // Check if this chunk should be redacted (from policy or threshold)
     let should_redact = action_outcome.should_stop
         || !action_outcome.modifications.is_empty()
-        || result.final_decision.as_ref().map_or(false, |d| d.score > threshold);
+        || result
+            .final_decision
+            .as_ref()
+            .is_some_and(|d| d.score > threshold);
 
     if should_redact {
         metrics::counter!("checkstream_decisions_total", "phase" => "midstream", "action" => "redact")
@@ -339,23 +346,38 @@ pub async fn execute_midstream_chunk(
 
     Ok(MidstreamResult {
         redacted: should_redact,
-        result,
-        latency,
-        policy_results,
-        action_outcome,
     })
 }
 
-/// Phase 3: Egress - Final compliance check on complete response
-pub async fn execute_egress(
+pub async fn execute_egress_with_tenant(
     state: &AppState,
+    tenant: &TenantRuntime,
+    full_text: &str,
+    request_id: &str,
+) -> Result<EgressResult> {
+    execute_egress_internal(
+        state,
+        &tenant.pipelines.egress,
+        tenant.policy_engine.as_ref(),
+        tenant.action_executor.as_ref(),
+        full_text,
+        request_id,
+    )
+    .await
+}
+
+async fn execute_egress_internal(
+    state: &AppState,
+    pipeline: &ClassifierPipeline,
+    policy_engine: &RwLock<PolicyEngine>,
+    action_executor: &ActionExecutor,
     full_text: &str,
     request_id: &str,
 ) -> Result<EgressResult> {
     info!("Phase 3: Executing egress compliance check");
 
     let start = std::time::Instant::now();
-    let result = state.pipelines.egress.execute(full_text).await?;
+    let result = pipeline.execute(full_text).await?;
     let classifier_latency = start.elapsed();
 
     // Record classifier metrics
@@ -366,29 +388,15 @@ pub async fn execute_egress(
     let classifier_scores = extract_classifier_scores(&result);
 
     // Evaluate policies on complete response
-    let policy_results = {
-        let mut engine = state.policy_engine.write().unwrap();
-        engine.set_classifier_scores(classifier_scores);
-        engine.evaluate_text(full_text)
-    };
+    let policy_results = evaluate_policies(policy_engine, classifier_scores, full_text);
 
     // Execute actions from triggered policies
-    let action_outcome = state.action_executor.execute(&policy_results);
+    let action_outcome = action_executor.execute(&policy_results);
 
     let latency = start.elapsed();
 
     // Record audit events for triggered policies
-    let request_ctx = RequestContext::new(request_id, "egress");
-    for audit_record in &action_outcome.audit_records {
-        let policy_record = PolicyAuditRecord {
-            rule_name: audit_record.rule_name.clone(),
-            policy_name: audit_record.policy_name.clone(),
-            category: audit_record.category.clone(),
-            severity: convert_severity(&audit_record.severity),
-            context: audit_record.context.clone(),
-        };
-        state.audit_service.record_from_policy(&policy_record, &request_ctx);
-    }
+    record_policy_audit(state, "egress", request_id, &action_outcome);
 
     // Record policy evaluation metrics
     if !policy_results.is_empty() {
@@ -411,21 +419,12 @@ pub async fn execute_egress(
 
     info!("Phase 3: COMPLETE - Latency: {:?}", latency);
 
-    Ok(EgressResult {
-        result,
-        latency,
-        policy_results,
-        action_outcome,
-    })
+    Ok(EgressResult { action_outcome })
 }
 
 /// Result from Phase 1: Ingress
 pub struct IngressResult {
     pub blocked: bool,
-    pub result: checkstream_classifiers::PipelineExecutionResult,
-    pub latency: std::time::Duration,
-    /// Policy evaluation results
-    pub policy_results: Vec<EvaluationResult>,
     /// Action outcomes from policy execution
     pub action_outcome: ActionOutcome,
 }
@@ -433,27 +432,17 @@ pub struct IngressResult {
 /// Result from Phase 2: Midstream chunk check
 pub struct MidstreamResult {
     pub redacted: bool,
-    pub result: checkstream_classifiers::PipelineExecutionResult,
-    pub latency: std::time::Duration,
-    /// Policy evaluation results
-    pub policy_results: Vec<EvaluationResult>,
-    /// Action outcomes from policy execution
-    pub action_outcome: ActionOutcome,
 }
 
 /// Result from Phase 3: Egress
 pub struct EgressResult {
-    pub result: checkstream_classifiers::PipelineExecutionResult,
-    pub latency: std::time::Duration,
-    /// Policy evaluation results
-    pub policy_results: Vec<EvaluationResult>,
     /// Action outcomes from policy execution
     pub action_outcome: ActionOutcome,
 }
 
 /// Extract classifier scores from pipeline execution result
 fn extract_classifier_scores(
-    result: &checkstream_classifiers::PipelineExecutionResult
+    result: &checkstream_classifiers::PipelineExecutionResult,
 ) -> HashMap<String, f32> {
     let mut scores = HashMap::new();
 

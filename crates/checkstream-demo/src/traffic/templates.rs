@@ -40,33 +40,29 @@ impl RequestTemplates {
                     ],
                 },
             ],
-            coding: vec![
-                ConversationTemplate {
-                    system_prompt: Some("You are a coding assistant.".to_string()),
-                    user_prompts: vec![
-                        "Write a function to reverse a string in Python.".to_string(),
-                        "How do I implement a binary search tree?".to_string(),
-                        "Explain the difference between REST and GraphQL.".to_string(),
-                        "What is the best way to handle errors in Rust?".to_string(),
-                        "Write a simple HTTP server in Node.js.".to_string(),
-                        "How do I optimize database queries?".to_string(),
-                        "Implement a sorting algorithm in JavaScript.".to_string(),
-                        "What are best practices for API design?".to_string(),
-                    ],
-                },
-            ],
-            creative: vec![
-                ConversationTemplate {
-                    system_prompt: Some("You are a creative writing assistant.".to_string()),
-                    user_prompts: vec![
-                        "Write a short story about a robot learning to love.".to_string(),
-                        "Create a poem about the ocean at sunset.".to_string(),
-                        "Imagine a world where time flows backwards.".to_string(),
-                        "Write a dialogue between the sun and the moon.".to_string(),
-                        "Create a mystery story opening paragraph.".to_string(),
-                    ],
-                },
-            ],
+            coding: vec![ConversationTemplate {
+                system_prompt: Some("You are a coding assistant.".to_string()),
+                user_prompts: vec![
+                    "Write a function to reverse a string in Python.".to_string(),
+                    "How do I implement a binary search tree?".to_string(),
+                    "Explain the difference between REST and GraphQL.".to_string(),
+                    "What is the best way to handle errors in Rust?".to_string(),
+                    "Write a simple HTTP server in Node.js.".to_string(),
+                    "How do I optimize database queries?".to_string(),
+                    "Implement a sorting algorithm in JavaScript.".to_string(),
+                    "What are best practices for API design?".to_string(),
+                ],
+            }],
+            creative: vec![ConversationTemplate {
+                system_prompt: Some("You are a creative writing assistant.".to_string()),
+                user_prompts: vec![
+                    "Write a short story about a robot learning to love.".to_string(),
+                    "Create a poem about the ocean at sunset.".to_string(),
+                    "Imagine a world where time flows backwards.".to_string(),
+                    "Write a dialogue between the sun and the moon.".to_string(),
+                    "Create a mystery story opening paragraph.".to_string(),
+                ],
+            }],
         }
     }
 

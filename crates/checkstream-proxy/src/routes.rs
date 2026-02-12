@@ -7,19 +7,22 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use checkstream_policy::action::InjectPosition;
+use checkstream_policy::executor::{ActionOutcome, ModificationKind, TextModification};
 use checkstream_telemetry::{AuditQuery as TelemetryAuditQuery, AuditSeverity};
 use futures_util::stream::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
-use axum::extract::Path;
-use checkstream_classifiers::{StreamingPipeline, StreamingConfig};
-use checkstream_core::{StreamAdapter, ParsedChunk};
-use crate::proxy::{self, AppState, generate_request_id};
+use crate::proxy::{self, generate_request_id, AppState};
 use crate::tenant::TenantRuntime;
+use axum::extract::Path;
+use checkstream_classifiers::{StreamingConfig, StreamingPipeline};
+use checkstream_core::ParsedChunk;
 
 pub fn create_router(state: AppState) -> Router {
     Router::new()
@@ -31,7 +34,10 @@ pub fn create_router(state: AppState) -> Router {
         // Chat completions - default tenant
         .route("/v1/chat/completions", post(chat_completions))
         // Chat completions - tenant-prefixed route
-        .route("/:tenant_id/v1/chat/completions", post(chat_completions_with_tenant))
+        .route(
+            "/:tenant_id/v1/chat/completions",
+            post(chat_completions_with_tenant),
+        )
         // Audit endpoints
         .route("/audit", get(audit_query))
         .route("/audit/stats", get(audit_stats))
@@ -60,7 +66,9 @@ async fn liveness_check() -> Json<serde_json::Value> {
 
 /// Readiness probe - indicates if the service is ready to serve traffic
 /// Checks that all components are initialized
-async fn readiness_check(State(state): State<AppState>) -> Result<Json<serde_json::Value>, AppError> {
+async fn readiness_check(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, AppError> {
     let classifier_count = state.registry.count();
 
     // Check if we have classifiers loaded
@@ -85,9 +93,44 @@ async fn readiness_check(State(state): State<AppState>) -> Result<Json<serde_jso
     })))
 }
 
-async fn metrics(State(state): State<AppState>) -> String {
+static ADMIN_API_KEY: OnceLock<Option<String>> = OnceLock::new();
+
+fn admin_api_key() -> Option<&'static str> {
+    ADMIN_API_KEY
+        .get_or_init(|| {
+            std::env::var("CHECKSTREAM_ADMIN_API_KEY")
+                .ok()
+                .filter(|v| !v.trim().is_empty())
+        })
+        .as_deref()
+}
+
+fn require_admin(headers: &HeaderMap) -> Result<(), AppError> {
+    let expected = admin_api_key()
+        .ok_or_else(|| AppError::Forbidden("Admin API key is not configured".to_string()))?;
+
+    let header_match = headers
+        .get("x-checkstream-admin-key")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v == expected);
+
+    let bearer_match = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .is_some_and(|v| v.trim() == expected);
+
+    if header_match || bearer_match {
+        Ok(())
+    } else {
+        Err(AppError::Forbidden("Invalid admin credentials".to_string()))
+    }
+}
+
+async fn metrics(State(state): State<AppState>, headers: HeaderMap) -> Result<String, AppError> {
+    require_admin(&headers)?;
     // Render actual Prometheus metrics from the handle
-    state.metrics_handle.render()
+    Ok(state.metrics_handle.render())
 }
 
 /// Audit query request parameters
@@ -108,8 +151,10 @@ struct AuditQueryParams {
 /// Audit query handler
 async fn audit_query(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Query(params): Query<AuditQueryParams>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    require_admin(&headers)?;
     let mut query = TelemetryAuditQuery::new();
 
     if let Some(event_type) = params.event_type {
@@ -139,7 +184,9 @@ async fn audit_query(
         query = query.limit(limit);
     }
 
-    let events = state.audit_service.query(&query)
+    let events = state
+        .audit_service
+        .query(&query)
         .map_err(|e| AppError::InternalError(format!("Audit query failed: {}", e)))?;
 
     let events_json: Vec<serde_json::Value> = events.iter().map(|e| {
@@ -164,8 +211,12 @@ async fn audit_query(
 /// Audit stats handler
 async fn audit_stats(
     State(state): State<AppState>,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let stats = state.audit_service.stats()
+    require_admin(&headers)?;
+    let stats = state
+        .audit_service
+        .stats()
         .map_err(|e| AppError::InternalError(format!("Audit stats failed: {}", e)))?;
 
     Ok(Json(json!({
@@ -222,31 +273,6 @@ struct Usage {
     total_tokens: u32,
 }
 
-/// SSE chunk for streaming responses
-#[derive(Debug, Serialize, Deserialize)]
-struct StreamChunk {
-    id: String,
-    object: String,
-    created: u64,
-    model: String,
-    choices: Vec<StreamChoice>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct StreamChoice {
-    index: u32,
-    delta: Delta,
-    finish_reason: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct Delta {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    role: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    content: Option<String>,
-}
-
 /// Main chat completions handler (uses tenant from header or API key, falls back to default)
 async fn chat_completions(
     State(state): State<AppState>,
@@ -254,7 +280,9 @@ async fn chat_completions(
     Json(req): Json<ChatCompletionRequest>,
 ) -> Result<Response, AppError> {
     // Resolve tenant from headers/API key
-    let tenant = state.tenant_resolver.resolve(&headers, "/v1/chat/completions");
+    let tenant = state
+        .tenant_resolver
+        .resolve(&headers, "/v1/chat/completions");
     chat_completions_internal(state, tenant, headers, req).await
 }
 
@@ -265,9 +293,10 @@ async fn chat_completions_with_tenant(
     headers: HeaderMap,
     Json(req): Json<ChatCompletionRequest>,
 ) -> Result<Response, AppError> {
-    // Resolve tenant from path, falling back to header/API key resolution
-    let tenant = state.tenant_resolver.get(&tenant_id)
-        .unwrap_or_else(|| state.tenant_resolver.resolve(&headers, &format!("/{}/v1/chat/completions", tenant_id)));
+    let tenant = state
+        .tenant_resolver
+        .get(&tenant_id)
+        .ok_or_else(|| AppError::InvalidRequest(format!("Unknown tenant '{}'", tenant_id)))?;
 
     chat_completions_internal(state, tenant, headers, req).await
 }
@@ -275,16 +304,20 @@ async fn chat_completions_with_tenant(
 /// List configured tenants
 async fn list_tenants(
     State(state): State<AppState>,
-) -> Json<serde_json::Value> {
-    let tenants: Vec<serde_json::Value> = state.tenant_resolver.list_tenants()
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, AppError> {
+    require_admin(&headers)?;
+    let tenants: Vec<serde_json::Value> = state
+        .tenant_resolver
+        .list_tenants()
         .iter()
         .map(|id| json!({ "id": id }))
         .collect();
 
-    Json(json!({
+    Ok(Json(json!({
         "tenants": tenants,
         "multi_tenant_enabled": state.tenant_resolver.is_multi_tenant()
-    }))
+    })))
 }
 
 /// Internal chat completions handler (shared by default and tenant-prefixed routes)
@@ -304,14 +337,18 @@ async fn chat_completions_internal(
 
     // Extract the user prompt (last user message)
     let prompt = extract_prompt(&req.messages)?;
-    debug!("Extracted prompt: {}", prompt);
+    debug!("Extracted prompt length: {} chars", prompt.len());
 
     // **Phase 1: Ingress** - Validate prompt before sending to LLM
-    let ingress_result = proxy::execute_ingress(&state, &prompt, &request_id).await?;
+    let ingress_result =
+        proxy::execute_ingress_with_tenant(&state, &tenant, &prompt, &request_id).await?;
 
     if ingress_result.blocked {
-        warn!("Request blocked by ingress pipeline (request_id: {})", request_id);
-        return Ok(blocked_response(&req).into_response());
+        warn!(
+            "Request blocked by ingress pipeline (request_id: {})",
+            request_id
+        );
+        return Ok(blocked_response(&req, &ingress_result.action_outcome).into_response());
     }
 
     // Forward request to backend LLM
@@ -332,15 +369,20 @@ async fn handle_non_streaming_request(
     headers: HeaderMap,
     request_id: String,
 ) -> Result<Response, AppError> {
-    info!("Handling non-streaming request for tenant: {} (request_id: {})", tenant.id, request_id);
+    info!(
+        "Handling non-streaming request for tenant: {} (request_id: {})",
+        tenant.id, request_id
+    );
 
     // Forward to tenant-specific backend
     let backend_url = format!("{}/chat/completions", tenant.backend_url);
-    let auth_header = headers.get("authorization")
+    let auth_header = headers
+        .get("authorization")
         .and_then(|h| h.to_str().ok())
         .unwrap_or("");
 
-    let backend_response = state.http_client
+    let backend_response = state
+        .http_client
         .post(&backend_url)
         .header("Authorization", auth_header)
         .header("Content-Type", "application/json")
@@ -349,18 +391,43 @@ async fn handle_non_streaming_request(
         .await?;
 
     if !backend_response.status().is_success() {
-        error!("Backend request failed: {} (request_id: {})", backend_response.status(), request_id);
+        error!(
+            "Backend request failed: {} (request_id: {})",
+            backend_response.status(),
+            request_id
+        );
         return Err(AppError::BackendError(backend_response.status()));
     }
 
     let response_text = backend_response.text().await?;
-    let response: ChatCompletionResponse = serde_json::from_str(&response_text)?;
+    let mut response: ChatCompletionResponse = serde_json::from_str(&response_text)?;
 
     // **Phase 3: Egress** - Compliance check on complete response
     let assistant_message = &response.choices[0].message.content;
-    let egress_result = proxy::execute_egress(&state, assistant_message, &request_id).await?;
+    let egress_result =
+        proxy::execute_egress_with_tenant(&state, &tenant, assistant_message, &request_id).await?;
 
-    info!("Non-streaming request complete (request_id: {})", request_id);
+    if egress_result.action_outcome.should_stop {
+        let status = egress_result.action_outcome.stop_status.unwrap_or(403);
+        let message = egress_result
+            .action_outcome
+            .stop_message
+            .unwrap_or_else(|| "Response blocked by policy".to_string());
+        return Ok(policy_denied_response(status, &message));
+    }
+
+    if !egress_result.action_outcome.modifications.is_empty() {
+        response.choices[0].message.content = apply_modifications(
+            &response.choices[0].message.content,
+            &egress_result.action_outcome.modifications,
+        );
+        response.choices[0].finish_reason = "content_filter".to_string();
+    }
+
+    info!(
+        "Non-streaming request complete (request_id: {})",
+        request_id
+    );
 
     Ok(Json(response).into_response())
 }
@@ -383,11 +450,13 @@ async fn handle_streaming_request(
 
     // Forward to tenant-specific backend
     let backend_url = format!("{}/chat/completions", tenant.backend_url);
-    let auth_header = headers.get("authorization")
+    let auth_header = headers
+        .get("authorization")
         .and_then(|h| h.to_str().ok())
         .unwrap_or("");
 
-    let backend_response = state.http_client
+    let backend_response = state
+        .http_client
         .post(&backend_url)
         .header("Authorization", auth_header)
         .header("Content-Type", "application/json")
@@ -396,7 +465,11 @@ async fn handle_streaming_request(
         .await?;
 
     if !backend_response.status().is_success() {
-        error!("Backend streaming request failed: {} (request_id: {})", backend_response.status(), request_id);
+        error!(
+            "Backend streaming request failed: {} (request_id: {})",
+            backend_response.status(),
+            request_id
+        );
         return Err(AppError::BackendError(backend_response.status()));
     }
 
@@ -408,44 +481,19 @@ async fn handle_streaming_request(
     };
 
     let midstream_pipeline = tenant.pipelines.midstream.clone();
-    let streaming = Arc::new(Mutex::new(
-        StreamingPipeline::new(midstream_pipeline, streaming_config)
-    ));
+    let streaming = Arc::new(Mutex::new(StreamingPipeline::new(
+        midstream_pipeline,
+        streaming_config,
+    )));
 
-    let chunk_threshold = tenant.pipeline_settings.chunk_threshold;
     let full_text = Arc::new(Mutex::new(String::new()));
-    let state_for_egress = state.clone();
-    let full_text_for_egress = full_text.clone();
-    let request_id_for_egress = request_id.clone();
-
-    // Spawn async task to execute Phase 3 after stream completes
-    let _egress_handle = tokio::spawn(async move {
-        // Wait a bit to ensure stream has collected text
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
-        // Get full text
-        let text = {
-            let full = full_text_for_egress.lock().await;
-            full.clone()
-        };
-
-        if !text.is_empty() {
-            // **Phase 3: Egress** - Final compliance check
-            match proxy::execute_egress(&state_for_egress, &text, &request_id_for_egress).await {
-                Ok(_result) => {
-                    info!("Phase 3 completed successfully (request_id: {})", request_id_for_egress);
-                }
-                Err(e) => {
-                    error!("Phase 3 failed: {} (request_id: {})", e, request_id_for_egress);
-                }
-            }
-        }
-    });
 
     // Clone for midstream processing
     let state_for_midstream = state.clone();
     let request_id_for_midstream = request_id.clone();
     let stream_adapter = tenant.stream_adapter.clone();
+    let tenant_for_checks = Arc::clone(&tenant);
+    let stream_blocked = Arc::new(AtomicBool::new(false));
 
     // Convert backend stream to SSE stream with midstream checks
     let stream = backend_response.bytes_stream()
@@ -455,8 +503,14 @@ async fn handle_streaming_request(
             let state = state_for_midstream.clone();
             let req_id = request_id_for_midstream.clone();
             let adapter = stream_adapter.clone();
+            let tenant = Arc::clone(&tenant_for_checks);
+            let blocked = Arc::clone(&stream_blocked);
 
             async move {
+                if blocked.load(Ordering::Relaxed) {
+                    return None;
+                }
+
                 match chunk_result {
                     Ok(bytes) => {
                         let text = String::from_utf8_lossy(&bytes).to_string();
@@ -468,29 +522,68 @@ async fn handle_streaming_request(
                         for parsed in &parsed_chunks {
                             if let ParsedChunk::Content { text: content, .. } = parsed {
                                 // Store for Phase 3
-                                {
+                                let full_snapshot = {
                                     let mut full = full_text.lock().await;
                                     full.push_str(content);
-                                }
+                                    full.clone()
+                                };
 
                                 // **Phase 2: Midstream** - Check this chunk
-                                let mut streaming = streaming.lock().await;
-                                match proxy::execute_midstream_chunk(
+                                {
+                                    let mut streaming = streaming.lock().await;
+                                    match proxy::execute_midstream_chunk_with_tenant(
+                                        &state,
+                                        &tenant,
+                                        &mut streaming,
+                                        content.clone(),
+                                        &req_id,
+                                    )
+                                    .await
+                                    {
+                                        Ok(result) => {
+                                            if result.redacted {
+                                                warn!(
+                                                    "Chunk redacted by midstream pipeline (request_id: {})",
+                                                    req_id
+                                                );
+                                                return Some(Ok::<String, std::io::Error>(
+                                                    "[REDACTED]".to_string(),
+                                                ));
+                                            }
+                                        }
+                                        Err(e) => {
+                                            error!(
+                                                "Midstream check failed: {} (request_id: {})",
+                                                e, req_id
+                                            );
+                                            // Pass through on error
+                                        }
+                                    }
+                                }
+
+                                // Run full-text egress checks incrementally so violations can stop the stream.
+                                match proxy::execute_egress_with_tenant(
                                     &state,
-                                    &mut *streaming,
-                                    content.clone(),
-                                    chunk_threshold,
+                                    &tenant,
+                                    &full_snapshot,
                                     &req_id,
-                                ).await {
+                                )
+                                .await
+                                {
                                     Ok(result) => {
-                                        if result.redacted {
-                                            warn!("Chunk redacted by midstream pipeline (request_id: {})", req_id);
-                                            return Some(Ok::<String, std::io::Error>("[REDACTED]".to_string()));
+                                        if result.action_outcome.should_stop {
+                                            blocked.store(true, Ordering::Relaxed);
+                                            warn!(
+                                                "Streaming egress blocked further output (request_id: {})",
+                                                req_id
+                                            );
+                                            return Some(Ok::<String, std::io::Error>(
+                                                "[REDACTED]".to_string(),
+                                            ));
                                         }
                                     }
                                     Err(e) => {
-                                        error!("Midstream check failed: {} (request_id: {})", e, req_id);
-                                        // Pass through on error
+                                        error!("Egress check failed: {} (request_id: {})", e, req_id);
                                     }
                                 }
                             }
@@ -511,15 +604,15 @@ async fn handle_streaming_request(
     let mut response = Response::new(axum::body::Body::from_stream(stream));
     response.headers_mut().insert(
         "Content-Type",
-        HeaderValue::from_str(tenant.stream_adapter.content_type()).unwrap_or(HeaderValue::from_static("text/event-stream"))
+        HeaderValue::from_str(tenant.stream_adapter.content_type())
+            .unwrap_or(HeaderValue::from_static("text/event-stream")),
     );
-    response.headers_mut().insert(
-        "Cache-Control",
-        HeaderValue::from_static("no-cache")
-    );
+    response
+        .headers_mut()
+        .insert("Cache-Control", HeaderValue::from_static("no-cache"));
     response.headers_mut().insert(
         "X-CheckStream-Tenant",
-        HeaderValue::from_str(&tenant.id).unwrap_or(HeaderValue::from_static("default"))
+        HeaderValue::from_str(&tenant.id).unwrap_or(HeaderValue::from_static("default")),
     );
 
     Ok(response)
@@ -535,34 +628,63 @@ fn extract_prompt(messages: &[Message]) -> Result<String, AppError> {
         .ok_or_else(|| AppError::InvalidRequest("No user message found".to_string()))
 }
 
-/// Create blocked response
-fn blocked_response(req: &ChatCompletionRequest) -> Json<ChatCompletionResponse> {
-    Json(ChatCompletionResponse {
-        id: format!("chatcmpl-{}", uuid::Uuid::new_v4()),
-        object: "chat.completion".to_string(),
-        created: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs(),
-        model: req.model.clone(),
-        choices: vec![Choice {
-            index: 0,
-            message: Message {
-                role: "assistant".to_string(),
-                content: "I cannot assist with that request due to safety policies.".to_string(),
-            },
-            finish_reason: "content_filter".to_string(),
-        }],
-        usage: Usage {
-            prompt_tokens: 0,
-            completion_tokens: 0,
-            total_tokens: 0,
-        },
-    })
+fn policy_denied_response(status_code: u16, message: &str) -> Response {
+    let status = StatusCode::from_u16(status_code).unwrap_or(StatusCode::FORBIDDEN);
+    (
+        status,
+        Json(json!({
+            "error": {
+                "message": message,
+                "type": "policy_violation",
+            }
+        })),
+    )
+        .into_response()
 }
 
-async fn fallback() -> &'static str {
-    "Not found"
+/// Create blocked response
+fn blocked_response(req: &ChatCompletionRequest, action_outcome: &ActionOutcome) -> Response {
+    let status = action_outcome.stop_status.unwrap_or(403);
+    let message = action_outcome.stop_message.clone().unwrap_or_else(|| {
+        format!(
+            "Request for model '{}' blocked due to safety policies.",
+            req.model
+        )
+    });
+    policy_denied_response(status, &message)
+}
+
+fn apply_modifications(text: &str, modifications: &[TextModification]) -> String {
+    let mut output = text.to_string();
+    for modification in modifications {
+        match modification.kind {
+            ModificationKind::Redact => {
+                if let Some((start, end)) = modification.span {
+                    if start < end && end <= output.len() {
+                        output.replace_range(start..end, &modification.content);
+                    } else {
+                        output = modification.content.clone();
+                    }
+                } else {
+                    output = modification.content.clone();
+                }
+            }
+            ModificationKind::Inject => {
+                match modification.position.unwrap_or(InjectPosition::After) {
+                    InjectPosition::Before => {
+                        output = format!("{}{}", modification.content, output)
+                    }
+                    InjectPosition::After => output.push_str(&modification.content),
+                    InjectPosition::Replace => output = modification.content.clone(),
+                }
+            }
+        }
+    }
+    output
+}
+
+async fn fallback() -> impl IntoResponse {
+    (StatusCode::NOT_FOUND, "Not found")
 }
 
 /// Error handling
@@ -570,6 +692,7 @@ async fn fallback() -> &'static str {
 enum AppError {
     InvalidRequest(String),
     BackendError(StatusCode),
+    Forbidden(String),
     InternalError(String),
 }
 
@@ -596,7 +719,14 @@ impl IntoResponse for AppError {
         let (status, message) = match self {
             AppError::InvalidRequest(msg) => (StatusCode::BAD_REQUEST, msg),
             AppError::BackendError(status) => (status, "Backend error".to_string()),
-            AppError::InternalError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
+            AppError::Forbidden(msg) => (StatusCode::FORBIDDEN, msg),
+            AppError::InternalError(msg) => {
+                error!("Internal error: {}", msg);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".to_string(),
+                )
+            }
         };
 
         let body = json!({

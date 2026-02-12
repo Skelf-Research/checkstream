@@ -129,7 +129,7 @@ mod tests {
             Action::Log { message, level } => {
                 assert_eq!(message, "Test");
                 assert!(matches!(level, LogLevel::Info));
-            },
+            }
             _ => panic!("Wrong action type"),
         }
     }
@@ -140,10 +140,13 @@ mod tests {
         let action: Action = serde_json::from_str(json).unwrap();
 
         match action {
-            Action::Stop { message, status_code } => {
+            Action::Stop {
+                message,
+                status_code,
+            } => {
                 assert_eq!(message, Some("Blocked".to_string()));
                 assert_eq!(status_code, 451);
-            },
+            }
             _ => panic!("Wrong action type"),
         }
     }

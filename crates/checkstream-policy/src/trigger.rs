@@ -77,10 +77,13 @@ mod tests {
         let trigger: Trigger = serde_json::from_str(json).unwrap();
 
         match trigger {
-            Trigger::Classifier { classifier, threshold } => {
+            Trigger::Classifier {
+                classifier,
+                threshold,
+            } => {
                 assert_eq!(classifier, "toxicity");
                 assert_eq!(threshold, 0.8);
-            },
+            }
             _ => panic!("Wrong trigger type"),
         }
     }

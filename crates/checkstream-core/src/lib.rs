@@ -9,21 +9,21 @@
 //! - Performance-critical utilities (buffer management, zero-copy operations)
 //! - Stream adapters for parsing various LLM streaming formats
 
+pub mod adapters;
 pub mod error;
 pub mod stream;
-pub mod types;
 pub mod stream_adapter;
-pub mod adapters;
+pub mod types;
 
+pub use adapters::{anthropic_adapter, AdapterConfig, ConfigurableAdapter, OpenAiAdapter};
 pub use error::{Error, Result};
-pub use types::{Token, Message, ChatMessage, StreamChunk};
-pub use stream_adapter::{StreamAdapter, ParsedChunk, ChunkMetadata, AdapterRegistry};
-pub use adapters::{OpenAiAdapter, ConfigurableAdapter, AdapterConfig, anthropic_adapter};
+pub use stream_adapter::{AdapterRegistry, ChunkMetadata, ParsedChunk, StreamAdapter};
+pub use types::{ChatMessage, Message, StreamChunk, Token};
 
 /// Prelude module for convenient imports
 pub mod prelude {
+    pub use crate::adapters::{ConfigurableAdapter, OpenAiAdapter};
     pub use crate::error::{Error, Result};
-    pub use crate::types::{Token, Message, ChatMessage, StreamChunk};
-    pub use crate::stream_adapter::{StreamAdapter, ParsedChunk, ChunkMetadata};
-    pub use crate::adapters::{OpenAiAdapter, ConfigurableAdapter};
+    pub use crate::stream_adapter::{ChunkMetadata, ParsedChunk, StreamAdapter};
+    pub use crate::types::{ChatMessage, Message, StreamChunk, Token};
 }

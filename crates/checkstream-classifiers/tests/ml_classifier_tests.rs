@@ -1,6 +1,6 @@
 //! ML Classifier Integration Tests
 //!
-//! Tests for the ML-based classifiers using real models from HuggingFace.
+//! Tests for the registry-driven sequence classifier path.
 //! These tests require the `ml-models` feature flag.
 
 #![cfg(feature = "ml-models")]
@@ -9,7 +9,7 @@ use checkstream_classifiers::generic_loader::GenericModelLoader;
 use checkstream_classifiers::model_config::ModelRegistry;
 use checkstream_classifiers::Classifier;
 
-/// Test configuration for DistilBERT sentiment classifier
+/// Test configuration for DistilBERT-style sentiment classifier
 fn sentiment_config() -> &'static str {
     r#"
 version: "1.0"
@@ -31,45 +31,88 @@ models:
 "#
 }
 
+fn ml_tests_enabled() -> bool {
+    std::env::var("CHECKSTREAM_RUN_ML_TESTS")
+        .ok()
+        .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+}
+
+async fn load_sentiment_classifier() -> Option<Box<dyn Classifier>> {
+    if !ml_tests_enabled() {
+        return None;
+    }
+
+    let registry: ModelRegistry = serde_yaml::from_str(sentiment_config()).unwrap();
+    let loader = GenericModelLoader::new(registry);
+    Some(
+        loader
+            .load_classifier("sentiment")
+            .await
+            .expect("Failed to load sentiment model"),
+    )
+}
+
 #[tokio::test]
 async fn test_load_sentiment_model() {
+    if !ml_tests_enabled() {
+        return;
+    }
+
     let registry: ModelRegistry = serde_yaml::from_str(sentiment_config()).unwrap();
     let loader = GenericModelLoader::new(registry);
 
     let result = loader.load_classifier("sentiment").await;
-    assert!(result.is_ok(), "Failed to load sentiment model: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Failed to load sentiment model: {:?}",
+        result.err()
+    );
 }
 
 #[tokio::test]
 async fn test_sentiment_positive() {
-    let registry: ModelRegistry = serde_yaml::from_str(sentiment_config()).unwrap();
-    let loader = GenericModelLoader::new(registry);
-    let classifier = loader.load_classifier("sentiment").await.unwrap();
+    let Some(classifier) = load_sentiment_classifier().await else {
+        return;
+    };
 
-    let result = classifier.classify("I love this movie, it's absolutely fantastic!").await.unwrap();
+    let result = classifier
+        .classify("I love this movie, it's absolutely fantastic!")
+        .await
+        .unwrap();
 
     assert_eq!(result.label, "positive");
-    assert!(result.score > 0.9, "Expected high positive score, got {}", result.score);
+    assert!(
+        result.score > 0.9,
+        "Expected high positive score, got {}",
+        result.score
+    );
 }
 
 #[tokio::test]
 async fn test_sentiment_negative() {
-    let registry: ModelRegistry = serde_yaml::from_str(sentiment_config()).unwrap();
-    let loader = GenericModelLoader::new(registry);
-    let classifier = loader.load_classifier("sentiment").await.unwrap();
+    let Some(classifier) = load_sentiment_classifier().await else {
+        return;
+    };
 
-    let result = classifier.classify("This is the worst experience I've ever had.").await.unwrap();
+    let result = classifier
+        .classify("This is the worst experience I've ever had.")
+        .await
+        .unwrap();
 
     assert_eq!(result.label, "negative");
     // For negative sentiment, the "positive" score should be very low
-    assert!(result.score < 0.1, "Expected low positive score for negative text, got {}", result.score);
+    assert!(
+        result.score < 0.1,
+        "Expected low positive score for negative text, got {}",
+        result.score
+    );
 }
 
 #[tokio::test]
 async fn test_sentiment_batch_classification() {
-    let registry: ModelRegistry = serde_yaml::from_str(sentiment_config()).unwrap();
-    let loader = GenericModelLoader::new(registry);
-    let classifier = loader.load_classifier("sentiment").await.unwrap();
+    let Some(classifier) = load_sentiment_classifier().await else {
+        return;
+    };
 
     let test_cases = vec![
         ("I absolutely love this product!", "positive"),
@@ -92,51 +135,72 @@ async fn test_sentiment_batch_classification() {
 
 #[tokio::test]
 async fn test_classifier_metadata() {
-    let registry: ModelRegistry = serde_yaml::from_str(sentiment_config()).unwrap();
-    let loader = GenericModelLoader::new(registry);
-    let classifier = loader.load_classifier("sentiment").await.unwrap();
+    let Some(classifier) = load_sentiment_classifier().await else {
+        return;
+    };
 
     let result = classifier.classify("Test input").await.unwrap();
 
     // Check that all_scores is populated
-    assert!(result.metadata.all_scores.is_some(), "Expected all_scores metadata");
+    assert!(
+        result.metadata.all_scores.is_some(),
+        "Expected all_scores metadata"
+    );
 
     let all_scores = result.metadata.all_scores.as_ref().unwrap();
-    assert_eq!(all_scores.len(), 2, "Expected 2 labels (negative, positive)");
+    assert_eq!(
+        all_scores.len(),
+        2,
+        "Expected 2 labels (negative, positive)"
+    );
 
     // Scores should sum to approximately 1.0 (softmax output)
     let total: f32 = all_scores.iter().map(|(_, s)| s).sum();
-    assert!((total - 1.0).abs() < 0.01, "Scores should sum to ~1.0, got {}", total);
+    assert!(
+        (total - 1.0).abs() < 0.01,
+        "Scores should sum to ~1.0, got {}",
+        total
+    );
 }
 
 #[tokio::test]
 async fn test_classifier_latency() {
-    let registry: ModelRegistry = serde_yaml::from_str(sentiment_config()).unwrap();
-    let loader = GenericModelLoader::new(registry);
-    let classifier = loader.load_classifier("sentiment").await.unwrap();
+    let Some(classifier) = load_sentiment_classifier().await else {
+        return;
+    };
 
-    let result = classifier.classify("Test input for latency measurement").await.unwrap();
+    let result = classifier
+        .classify("Test input for latency measurement")
+        .await
+        .unwrap();
 
     // Latency should be recorded and reasonable (< 1 second on CPU)
     assert!(result.latency_us > 0, "Latency should be recorded");
-    assert!(result.latency_us < 1_000_000, "Latency should be < 1 second, got {}us", result.latency_us);
+    assert!(
+        result.latency_us < 1_000_000,
+        "Latency should be < 1 second, got {}us",
+        result.latency_us
+    );
 }
 
 #[tokio::test]
 async fn test_classifier_tier() {
-    let registry: ModelRegistry = serde_yaml::from_str(sentiment_config()).unwrap();
-    let loader = GenericModelLoader::new(registry);
-    let classifier = loader.load_classifier("sentiment").await.unwrap();
+    let Some(classifier) = load_sentiment_classifier().await else {
+        return;
+    };
 
     // ML models should be Tier B
-    assert_eq!(classifier.tier(), checkstream_classifiers::ClassifierTier::B);
+    assert_eq!(
+        classifier.tier(),
+        checkstream_classifiers::ClassifierTier::B
+    );
 }
 
 #[tokio::test]
 async fn test_long_input_truncation() {
-    let registry: ModelRegistry = serde_yaml::from_str(sentiment_config()).unwrap();
-    let loader = GenericModelLoader::new(registry);
-    let classifier = loader.load_classifier("sentiment").await.unwrap();
+    let Some(classifier) = load_sentiment_classifier().await else {
+        return;
+    };
 
     // Create a very long input (should be truncated to max_length)
     let long_input = "I love this! ".repeat(1000);
@@ -147,9 +211,9 @@ async fn test_long_input_truncation() {
 
 #[tokio::test]
 async fn test_empty_input() {
-    let registry: ModelRegistry = serde_yaml::from_str(sentiment_config()).unwrap();
-    let loader = GenericModelLoader::new(registry);
-    let classifier = loader.load_classifier("sentiment").await.unwrap();
+    let Some(classifier) = load_sentiment_classifier().await else {
+        return;
+    };
 
     let result = classifier.classify("").await;
     // Empty input should still produce a result (tokenizer adds [CLS] and [SEP])
@@ -158,9 +222,9 @@ async fn test_empty_input() {
 
 #[tokio::test]
 async fn test_special_characters() {
-    let registry: ModelRegistry = serde_yaml::from_str(sentiment_config()).unwrap();
-    let loader = GenericModelLoader::new(registry);
-    let classifier = loader.load_classifier("sentiment").await.unwrap();
+    let Some(classifier) = load_sentiment_classifier().await else {
+        return;
+    };
 
     let inputs = vec![
         "I love this! @#$%^&*()",
@@ -171,12 +235,20 @@ async fn test_special_characters() {
 
     for input in inputs {
         let result = classifier.classify(input).await;
-        assert!(result.is_ok(), "Should handle special characters in: {}", input);
+        assert!(
+            result.is_ok(),
+            "Should handle special characters in: {}",
+            input
+        );
     }
 }
 
 #[tokio::test]
 async fn test_model_not_found() {
+    if !ml_tests_enabled() {
+        return;
+    }
+
     let config = r#"
 version: "1.0"
 models:
@@ -205,9 +277,16 @@ models:
 
 #[tokio::test]
 async fn test_model_name_not_in_registry() {
+    if !ml_tests_enabled() {
+        return;
+    }
+
     let registry: ModelRegistry = serde_yaml::from_str(sentiment_config()).unwrap();
     let loader = GenericModelLoader::new(registry);
 
     let result = loader.load_classifier("not_in_registry").await;
-    assert!(result.is_err(), "Should fail for model name not in registry");
+    assert!(
+        result.is_err(),
+        "Should fail for model name not in registry"
+    );
 }

@@ -1,6 +1,6 @@
 //! PII detection classifier (Tier A)
 
-use crate::classifier::{Classifier, ClassificationResult, ClassificationMetadata, ClassifierTier};
+use crate::classifier::{ClassificationMetadata, ClassificationResult, Classifier, ClassifierTier};
 use checkstream_core::Result;
 use regex::Regex;
 use std::time::Instant;
@@ -18,13 +18,26 @@ impl PiiClassifier {
     pub fn new() -> Result<Self> {
         Ok(Self {
             email_regex: Regex::new(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b")
-                .map_err(|e| checkstream_core::Error::classifier(format!("Failed to compile email regex: {}", e)))?,
-            phone_regex: Regex::new(r"\b\d{3}[-.]?\d{3}[-.]?\d{4}\b")
-                .map_err(|e| checkstream_core::Error::classifier(format!("Failed to compile phone regex: {}", e)))?,
-            ssn_regex: Regex::new(r"\b\d{3}-\d{2}-\d{4}\b")
-                .map_err(|e| checkstream_core::Error::classifier(format!("Failed to compile SSN regex: {}", e)))?,
-            credit_card_regex: Regex::new(r"\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b")
-                .map_err(|e| checkstream_core::Error::classifier(format!("Failed to compile credit card regex: {}", e)))?,
+                .map_err(|e| {
+                    checkstream_core::Error::classifier(format!(
+                        "Failed to compile email regex: {}",
+                        e
+                    ))
+                })?,
+            phone_regex: Regex::new(r"\b\d{3}[-.]?\d{3}[-.]?\d{4}\b").map_err(|e| {
+                checkstream_core::Error::classifier(format!("Failed to compile phone regex: {}", e))
+            })?,
+            ssn_regex: Regex::new(r"\b\d{3}-\d{2}-\d{4}\b").map_err(|e| {
+                checkstream_core::Error::classifier(format!("Failed to compile SSN regex: {}", e))
+            })?,
+            credit_card_regex: Regex::new(r"\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b").map_err(
+                |e| {
+                    checkstream_core::Error::classifier(format!(
+                        "Failed to compile credit card regex: {}",
+                        e
+                    ))
+                },
+            )?,
         })
     }
 }
@@ -75,11 +88,14 @@ impl Classifier for PiiClassifier {
                 latency_us: start.elapsed().as_micros() as u64,
             }
         } else {
-            let mut metadata = ClassificationMetadata::default();
-            metadata.spans = spans;
-            metadata.extra = pii_types.iter()
-                .map(|t| ("pii_type".to_string(), t.to_string()))
-                .collect();
+            let metadata = ClassificationMetadata {
+                spans,
+                extra: pii_types
+                    .iter()
+                    .map(|t| ("pii_type".to_string(), t.to_string()))
+                    .collect(),
+                ..Default::default()
+            };
 
             ClassificationResult {
                 label: "pii_detected".to_string(),
@@ -109,7 +125,10 @@ mod tests {
     async fn test_email_detection() {
         let classifier = PiiClassifier::new().unwrap();
 
-        let result = classifier.classify("Contact me at john@example.com").await.unwrap();
+        let result = classifier
+            .classify("Contact me at john@example.com")
+            .await
+            .unwrap();
         assert_eq!(result.label, "pii_detected");
         assert_eq!(result.score, 1.0);
     }
@@ -127,7 +146,10 @@ mod tests {
     async fn test_phone_detection() {
         let classifier = PiiClassifier::new().unwrap();
 
-        let result = classifier.classify("Call me at 555-123-4567").await.unwrap();
+        let result = classifier
+            .classify("Call me at 555-123-4567")
+            .await
+            .unwrap();
         assert_eq!(result.label, "pii_detected");
     }
 }

@@ -73,7 +73,14 @@ async fn main() -> anyhow::Result<()> {
 
             println!("Generating traffic to {}", target);
             println!("  Rate: {} req/s", rate);
-            println!("  Duration: {}s", if duration == 0 { "infinite".to_string() } else { duration.to_string() });
+            println!(
+                "  Duration: {}s",
+                if duration == 0 {
+                    "infinite".to_string()
+                } else {
+                    duration.to_string()
+                }
+            );
             println!("  Issues: {}", issues);
             println!();
 
@@ -124,10 +131,7 @@ async fn main() -> anyhow::Result<()> {
                         .await?;
                 }
             } else {
-                eprintln!(
-                    "Failed to start traffic: {}",
-                    start_response.text().await?
-                );
+                eprintln!("Failed to start traffic: {}", start_response.text().await?);
             }
         }
     }
@@ -144,8 +148,7 @@ fn init_logging(verbose: bool) {
 
     tracing_subscriber::registry()
         .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| filter.into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| filter.into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();

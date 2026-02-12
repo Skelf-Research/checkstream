@@ -13,19 +13,16 @@ pub mod metrics;
 pub mod persistence;
 pub mod service;
 
-pub use audit::{AuditTrail, AuditEvent, AuditSeverity};
+pub use audit::{AuditEvent, AuditSeverity, AuditTrail};
 pub use metrics::MetricsCollector;
 pub use persistence::{
-    AuditQuery, AuditReader, AuditWriter, ExportFormat,
-    PersistedAuditEvent, PersistenceConfig,
+    AuditQuery, AuditReader, AuditWriter, ExportFormat, PersistedAuditEvent, PersistenceConfig,
 };
-pub use service::{
-    AuditService, AuditStats, PolicyAuditRecord, PolicySeverity, RequestContext,
-};
+pub use service::{AuditService, AuditStats, PolicyAuditRecord, PolicySeverity, RequestContext};
 
 /// Prelude for convenient imports
 pub mod prelude {
-    pub use crate::audit::{AuditTrail, AuditEvent, AuditSeverity};
+    pub use crate::audit::{AuditEvent, AuditSeverity, AuditTrail};
     pub use crate::metrics::MetricsCollector;
     pub use crate::persistence::{AuditQuery, ExportFormat, PersistenceConfig};
     pub use crate::service::{AuditService, RequestContext};

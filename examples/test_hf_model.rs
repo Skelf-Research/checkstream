@@ -5,7 +5,6 @@
 
 use checkstream_classifiers::generic_loader::GenericModelLoader;
 use checkstream_classifiers::model_config::ModelRegistry;
-use checkstream_classifiers::Classifier;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -64,9 +63,10 @@ models:
     for (text, expected) in test_cases {
         let result = classifier.classify(text).await?;
 
-        let correct = if expected.contains(&result.label.to_lowercase()) ||
-                        (expected == "neutral/positive" && result.label == "positive") ||
-                        (expected == "neutral" && result.score < 0.7) {
+        let correct = if expected.contains(&result.label.to_lowercase())
+            || (expected == "neutral/positive" && result.label == "positive")
+            || (expected == "neutral" && result.score < 0.7)
+        {
             "✓"
         } else {
             "?"

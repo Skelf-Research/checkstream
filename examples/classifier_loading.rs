@@ -7,7 +7,7 @@
 //!
 //! Run with: cargo run --example classifier_loading
 
-use checkstream_classifiers::{init_registry_from_file, load_config};
+use checkstream_classifiers::load_config;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -35,9 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("      Source: Local file ({:?})", path);
             }
             checkstream_classifiers::ModelSourceSpec::HuggingFace {
-                repo_id,
-                filename,
-                ..
+                repo_id, filename, ..
             } => {
                 println!("      Source: Hugging Face");
                 println!("      Repo: {}", repo_id);

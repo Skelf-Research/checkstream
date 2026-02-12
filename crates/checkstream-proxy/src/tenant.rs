@@ -5,15 +5,15 @@
 use anyhow::Result;
 use axum::http::HeaderMap;
 use checkstream_classifiers::ClassifierRegistry;
-use checkstream_core::{StreamAdapter, OpenAiAdapter, ConfigurableAdapter, AdapterConfig, anthropic_adapter};
-use checkstream_policy::{PolicyEngine, ActionExecutor};
+use checkstream_core::{
+    anthropic_adapter, AdapterConfig, ConfigurableAdapter, OpenAiAdapter, StreamAdapter,
+};
+use checkstream_policy::{ActionExecutor, PolicyEngine};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tracing::{debug, info, warn};
 
-use crate::config::{
-    MultiTenantConfig, TenantConfig, ProxyConfig, PipelineSettings, StreamFormat, StreamFormatConfig,
-};
+use crate::config::{MultiTenantConfig, PipelineSettings, ProxyConfig, StreamFormat, TenantConfig};
 use crate::proxy::Pipelines;
 
 /// Pre-built runtime state per tenant
@@ -166,7 +166,10 @@ impl TenantRuntime {
                 for entry in std::fs::read_dir(path)? {
                     let entry = entry?;
                     let path = entry.path();
-                    if path.extension().map_or(false, |ext| ext == "yaml" || ext == "yml") {
+                    if path
+                        .extension()
+                        .is_some_and(|ext| ext == "yaml" || ext == "yml")
+                    {
                         if let Err(e) = engine.load_policy(&path) {
                             warn!("Failed to load policy {:?}: {}", path, e);
                         }
@@ -252,10 +255,7 @@ impl TenantResolver {
             tenants.insert(id.clone(), Arc::new(runtime));
         }
 
-        info!(
-            "TenantResolver initialized with {} tenants",
-            tenants.len()
-        );
+        info!("TenantResolver initialized with {} tenants", tenants.len());
 
         Ok(Self {
             tenants,
@@ -374,37 +374,19 @@ mod tests {
             extract_path_tenant("/my-tenant/v1/chat/completions"),
             Some("my-tenant".to_string())
         );
-        assert_eq!(
-            extract_path_tenant("/v1/chat/completions"),
-            None
-        );
+        assert_eq!(extract_path_tenant("/v1/chat/completions"), None);
         assert_eq!(
             extract_path_tenant("my-tenant/v1/chat"),
             Some("my-tenant".to_string())
         );
-        assert_eq!(
-            extract_path_tenant("/single"),
-            None
-        );
+        assert_eq!(extract_path_tenant("/single"), None);
     }
 
     #[test]
     fn test_extract_api_key() {
-        assert_eq!(
-            extract_api_key("Bearer sk-test123"),
-            Some("sk-test123")
-        );
-        assert_eq!(
-            extract_api_key("sk-test123"),
-            Some("sk-test123")
-        );
-        assert_eq!(
-            extract_api_key("key-test123"),
-            Some("key-test123")
-        );
-        assert_eq!(
-            extract_api_key("invalid"),
-            None
-        );
+        assert_eq!(extract_api_key("Bearer sk-test123"), Some("sk-test123"));
+        assert_eq!(extract_api_key("sk-test123"), Some("sk-test123"));
+        assert_eq!(extract_api_key("key-test123"), Some("key-test123"));
+        assert_eq!(extract_api_key("invalid"), None);
     }
 }

@@ -105,7 +105,8 @@ impl Default for StreamingSettings {
 
 impl ProxyConfig {
     /// Load configuration from file and CLI overrides
-    pub fn load(config_path: &str, cli: &crate::Cli) -> anyhow::Result<Self> {
+    #[allow(dead_code)]
+    pub(crate) fn load(config_path: &str, cli: &crate::Cli) -> anyhow::Result<Self> {
         // Try to load from file, or use defaults
         let mut config = if Path::new(config_path).exists() {
             let content = std::fs::read_to_string(config_path)?;
@@ -250,7 +251,7 @@ fn default_policy_path() -> String {
 ///
 /// This extends ProxyConfig with multi-tenant support while maintaining
 /// backward compatibility with single-tenant configurations.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MultiTenantConfig {
     /// Default/fallback configuration (backward compatible with ProxyConfig)
     #[serde(flatten)]
@@ -262,7 +263,7 @@ pub struct MultiTenantConfig {
 
 impl MultiTenantConfig {
     /// Load multi-tenant configuration from file
-    pub fn load(config_path: &str, cli: &crate::Cli) -> anyhow::Result<Self> {
+    pub(crate) fn load(config_path: &str, cli: &crate::Cli) -> anyhow::Result<Self> {
         let mut config = if Path::new(config_path).exists() {
             let content = std::fs::read_to_string(config_path)?;
             serde_yaml::from_str(&content)?
@@ -301,15 +302,6 @@ impl MultiTenantConfig {
             }
         }
         index
-    }
-}
-
-impl Default for MultiTenantConfig {
-    fn default() -> Self {
-        Self {
-            default: ProxyConfig::default(),
-            tenants: HashMap::new(),
-        }
     }
 }
 

@@ -8,6 +8,9 @@ members = [
     "crates/checkstream-telemetry",
     "crates/checkstream-demo",
 ]
+exclude = [
+    "plugins/checkstream-classifiers-ml-plugin",
+]
 
 [workspace.package]
 version = "0.1.0"
@@ -67,16 +70,6 @@ aho-corasick = "1.1"
 sha2 = "0.10"
 hmac = "0.12"
 argon2 = "0.5"
-rustls = "0.23"
-rustls-pemfile = "2.1"
-
-# ML/Inference (for classifiers)
-# Using Candle for Rust-native ML inference
-candle-core = "0.8"
-candle-nn = "0.8"
-candle-transformers = "0.8"
-tokenizers = "0.20"
-hf-hub = "0.3"  # For downloading models from Hugging Face
 
 # Redis for distributed state
 redis = { version = "0.25", features = ["tokio-comp", "connection-manager"] }
@@ -92,7 +85,7 @@ criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
 tempfile = "3.10"
 
 # Demo crate dependencies
-rust-embed = { version = "8.5", features = ["compression"] }
+rust-embed = "8.5"
 tower-http = { version = "0.5", features = ["cors", "fs", "compression-gzip"] }
 chrono = { version = "0.4", features = ["serde"] }
 rand = "0.8"

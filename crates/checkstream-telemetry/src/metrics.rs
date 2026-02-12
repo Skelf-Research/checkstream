@@ -48,12 +48,16 @@ impl MetricsCollector {
 
     /// Record latency
     pub fn record_latency(&self, latency_us: u64) {
-        self.inner.total_latency_us.fetch_add(latency_us, Ordering::Relaxed);
+        self.inner
+            .total_latency_us
+            .fetch_add(latency_us, Ordering::Relaxed);
     }
 
     /// Record classifier latency
     pub fn record_classifier_latency(&self, latency_us: u64) {
-        self.inner.classifier_latency_us.fetch_add(latency_us, Ordering::Relaxed);
+        self.inner
+            .classifier_latency_us
+            .fetch_add(latency_us, Ordering::Relaxed);
     }
 
     /// Get current metrics snapshot

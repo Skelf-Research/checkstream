@@ -51,7 +51,11 @@ impl ConfigurableAdapter {
     }
 
     /// Extract value from JSON using a simple path notation
-    fn extract_path<'a>(&self, value: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::Value> {
+    fn extract_path<'a>(
+        &self,
+        value: &'a serde_json::Value,
+        path: &str,
+    ) -> Option<&'a serde_json::Value> {
         let mut current = value;
 
         for part in path.split('.') {
@@ -317,9 +321,8 @@ data: {"type":"message_stop"}"#;
             finish_reason_path: None,
         });
 
-        let json: serde_json::Value = serde_json::from_str(
-            r#"{"choices":[{"delta":{"content":"test"}}]}"#
-        ).unwrap();
+        let json: serde_json::Value =
+            serde_json::from_str(r#"{"choices":[{"delta":{"content":"test"}}]}"#).unwrap();
 
         let value = adapter.extract_path(&json, "choices[0].delta.content");
         assert_eq!(value.unwrap().as_str(), Some("test"));

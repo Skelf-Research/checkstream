@@ -59,11 +59,13 @@ pub async fn update_issue_config(
     state.mock_backend.set_issue_config(config.clone());
 
     // Notify clients
-    state.event_bus.publish(DemoEvent::ConfigChanged(crate::models::ConfigChangeEvent {
-        field: "issue_config".to_string(),
-        old_value: serde_json::json!({}),
-        new_value: serde_json::to_value(&config).unwrap_or_default(),
-    }));
+    state
+        .event_bus
+        .publish(DemoEvent::ConfigChanged(crate::models::ConfigChangeEvent {
+            field: "issue_config".to_string(),
+            old_value: serde_json::json!({}),
+            new_value: serde_json::to_value(&config).unwrap_or_default(),
+        }));
 
     Json(serde_json::json!({ "status": "updated" }))
 }
@@ -100,7 +102,9 @@ pub async fn start_traffic(
     };
 
     // Notify clients
-    state.event_bus.publish(DemoEvent::TrafficStateChanged(TrafficState::Running));
+    state
+        .event_bus
+        .publish(DemoEvent::TrafficStateChanged(TrafficState::Running));
 
     // Spawn traffic generator
     let generator = TrafficGenerator::new(Arc::new(state.clone()));
@@ -122,7 +126,9 @@ pub async fn start_traffic(
 
 pub async fn stop_traffic(State(state): State<DemoAppState>) -> impl IntoResponse {
     state.traffic_controller.stop();
-    state.event_bus.publish(DemoEvent::TrafficStateChanged(TrafficState::Stopped));
+    state
+        .event_bus
+        .publish(DemoEvent::TrafficStateChanged(TrafficState::Stopped));
     Json(serde_json::json!({ "status": "stopped" }))
 }
 
@@ -197,7 +203,12 @@ pub async fn list_events(
                 }
             }
             if let Some(ref issue_type) = query.issue_type {
-                if !r.result.issues_detected.iter().any(|i| i.issue_type.contains(issue_type)) {
+                if !r
+                    .result
+                    .issues_detected
+                    .iter()
+                    .any(|i| i.issue_type.contains(issue_type))
+                {
                     return false;
                 }
             }

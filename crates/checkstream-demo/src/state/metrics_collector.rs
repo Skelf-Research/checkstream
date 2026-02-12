@@ -73,7 +73,10 @@ impl MetricsCollector {
 
         // Record issues
         for issue in &result.issues_detected {
-            *inner.issues_detected.entry(issue.issue_type.clone()).or_insert(0) += 1;
+            *inner
+                .issues_detected
+                .entry(issue.issue_type.clone())
+                .or_insert(0) += 1;
         }
 
         // Record rules
@@ -190,7 +193,8 @@ impl MetricsCollector {
     pub fn heatmap(&self, window_minutes: i64) -> HeatmapData {
         let inner = self.inner.read();
         let now = Utc::now();
-        let start_bucket = (now - Duration::minutes(window_minutes)).timestamp() / TIMELINE_BUCKET_SECONDS;
+        let start_bucket =
+            (now - Duration::minutes(window_minutes)).timestamp() / TIMELINE_BUCKET_SECONDS;
         let end_bucket = now.timestamp() / TIMELINE_BUCKET_SECONDS;
 
         let rules: Vec<String> = inner.heatmap.keys().cloned().collect();
@@ -198,7 +202,8 @@ impl MetricsCollector {
         let mut values = Vec::new();
 
         for bucket in start_bucket..=end_bucket {
-            time_buckets.push(DateTime::from_timestamp(bucket * TIMELINE_BUCKET_SECONDS, 0).unwrap_or(now));
+            time_buckets
+                .push(DateTime::from_timestamp(bucket * TIMELINE_BUCKET_SECONDS, 0).unwrap_or(now));
         }
 
         for rule in &rules {

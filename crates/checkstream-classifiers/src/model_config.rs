@@ -50,9 +50,7 @@ pub struct ModelConfig {
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum ModelSource {
     /// Load from local filesystem
-    Local {
-        path: PathBuf,
-    },
+    Local { path: PathBuf },
 
     /// Download from HuggingFace Hub
     HuggingFace {
@@ -62,9 +60,7 @@ pub enum ModelSource {
     },
 
     /// Use built-in implementation
-    Builtin {
-        implementation: String,
-    },
+    Builtin { implementation: String },
 }
 
 fn default_revision() -> String {
@@ -96,6 +92,20 @@ pub enum ArchitectureConfig {
         labels: Vec<String>,
     },
 
+    /// XLM-RoBERTa for sequence classification
+    XlmRobertaSequenceClassification {
+        num_labels: usize,
+        #[serde(default)]
+        labels: Vec<String>,
+    },
+
+    /// MiniLM for sequence classification
+    MiniLmSequenceClassification {
+        num_labels: usize,
+        #[serde(default)]
+        labels: Vec<String>,
+    },
+
     /// Sentence transformer (embedding-based)
     SentenceTransformer {
         #[serde(default = "default_pooling")]
@@ -110,9 +120,7 @@ pub enum ArchitectureConfig {
     },
 
     /// Custom architecture (requires code implementation)
-    Custom {
-        implementation: String,
-    },
+    Custom { implementation: String },
 }
 
 fn default_pooling() -> String {
@@ -232,7 +240,9 @@ pub enum PreprocessingStep {
 
 impl ModelRegistry {
     /// Load model registry from YAML file
-    pub fn from_file(path: impl AsRef<std::path::Path>) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn from_file(
+        path: impl AsRef<std::path::Path>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let contents = std::fs::read_to_string(path)?;
         let registry: ModelRegistry = serde_yaml::from_str(&contents)?;
         Ok(registry)
@@ -312,5 +322,32 @@ models:
             }
             _ => panic!("Expected local source"),
         }
+    }
+
+    #[test]
+    fn test_parse_extended_architectures() {
+        let yaml = r#"
+version: "1.0"
+models:
+  xlm:
+    source:
+      type: huggingface
+      repo: "joeddav/xlm-roberta-large-xnli"
+    architecture:
+      type: xlm-roberta-sequence-classification
+      num_labels: 3
+      labels: ["entailment", "neutral", "contradiction"]
+  minilm:
+    source:
+      type: huggingface
+      repo: "microsoft/MiniLM-L12-H384-uncased"
+    architecture:
+      type: mini-lm-sequence-classification
+      num_labels: 2
+      labels: ["negative", "positive"]
+"#;
+
+        let registry: ModelRegistry = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(registry.models.len(), 2);
     }
 }

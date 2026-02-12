@@ -1,6 +1,6 @@
 use crate::models::{
-    ChatRequest, DemoEvent, DemoMode, DetectedIssue, PipelineStage, RequestAction,
-    RequestRecord, RequestResult, TrafficConfig,
+    ChatRequest, DemoEvent, DemoMode, DetectedIssue, PipelineStage, RequestAction, RequestRecord,
+    RequestResult, TrafficConfig,
 };
 use crate::state::DemoAppState;
 use crate::traffic::RequestTemplates;
@@ -188,8 +188,16 @@ impl TrafficGenerator {
         // PII detection (simple patterns)
         let pii_patterns = [
             (r"\d{3}-\d{2}-\d{4}", "ssn", "pii_detector"),
-            (r"\d{4}\s?\d{4}\s?\d{4}\s?\d{4}", "credit_card", "pii_detector"),
-            (r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", "email", "pii_detector"),
+            (
+                r"\d{4}\s?\d{4}\s?\d{4}\s?\d{4}",
+                "credit_card",
+                "pii_detector",
+            ),
+            (
+                r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}",
+                "email",
+                "pii_detector",
+            ),
             (r"\(\d{3}\)\s?\d{3}-\d{4}", "phone", "pii_detector"),
         ];
 
@@ -237,8 +245,16 @@ impl TrafficGenerator {
 
         // Toxicity detection (keyword-based for demo)
         let toxic_keywords = [
-            "stupid", "idiot", "moron", "dumb", "incompetent", "worthless", "garbage", "trash",
-            "fool", "pathetic",
+            "stupid",
+            "idiot",
+            "moron",
+            "dumb",
+            "incompetent",
+            "worthless",
+            "garbage",
+            "trash",
+            "fool",
+            "pathetic",
         ];
 
         let content_lower = content.to_lowercase();

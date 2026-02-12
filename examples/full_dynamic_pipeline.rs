@@ -1,4 +1,4 @@
-use checkstream_classifiers::dynamic_registry::{DynamicClassifierRegistry, DynamicRegistryBuilder};
+use checkstream_classifiers::dynamic_registry::DynamicRegistryBuilder;
 use checkstream_classifiers::pii::PiiClassifier;
 use std::sync::Arc;
 
@@ -17,7 +17,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let registry = DynamicRegistryBuilder::new()
         .with_model_registry("models/registry.yaml")
         .with_builtin("pii", Arc::new(PiiClassifier::new()?))
-        .preload("toxicity")  // Preload toxicity model
+        .preload("toxicity") // Preload toxicity model
         .build()
         .await?;
 

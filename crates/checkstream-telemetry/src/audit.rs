@@ -1,7 +1,7 @@
 //! Cryptographic audit trail
 
 use serde::{Deserialize, Serialize};
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use std::time::SystemTime;
 
 /// Audit trail with hash-chained events for tamper detection
@@ -21,6 +21,12 @@ impl AuditTrail {
 
     /// Add an event to the audit trail
     pub fn add_event(&mut self, event: AuditEvent) {
+        let chained = self.chain_event(event);
+        self.events.push(chained);
+    }
+
+    /// Chain and return an event with previous hash/hash fields populated.
+    pub fn chain_event(&mut self, event: AuditEvent) -> AuditEvent {
         let mut event = event;
         event.previous_hash = self.chain_hash.clone();
 
@@ -28,7 +34,7 @@ impl AuditTrail {
         event.hash = Some(hash.clone());
 
         self.chain_hash = Some(hash);
-        self.events.push(event);
+        event
     }
 
     /// Verify the integrity of the audit trail

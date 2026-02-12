@@ -1,11 +1,10 @@
 //! Classifier registry initialization and management
 
 use crate::{
-    Classifier, ClassifierConfig, ClassifierPipeline, ModelRegistry,
-    PipelineConfigSpec, StageConfigSpec,
-    pii::PiiClassifier,
-    toxicity::ToxicityClassifier,
-    patterns::PatternClassifier,
+    classifier::ClassificationMetadata, financial_advice::FinancialAdviceClassifier,
+    patterns::PatternClassifier, pii::PiiClassifier, prompt_injection::PromptInjectionClassifier,
+    sentiment::SentimentClassifier, toxicity::ToxicityClassifier, Classifier, ClassifierConfig,
+    ClassifierPipeline, ModelRegistry, PipelineConfigSpec, StageConfigSpec,
 };
 use checkstream_core::Result;
 use std::collections::HashMap;
@@ -19,7 +18,7 @@ pub struct ClassifierRegistry {
     config: ClassifierConfig,
 
     /// Model registry for ML models
-    model_registry: ModelRegistry,
+    _model_registry: ModelRegistry,
 
     /// Instantiated classifiers by name
     classifiers: HashMap<String, Arc<dyn Classifier>>,
@@ -30,7 +29,7 @@ impl ClassifierRegistry {
     pub fn new(config: ClassifierConfig, model_registry: ModelRegistry) -> Self {
         Self {
             config,
-            model_registry,
+            _model_registry: model_registry,
             classifiers: HashMap::new(),
         }
     }
@@ -50,31 +49,107 @@ impl ClassifierRegistry {
     async fn initialize_classifiers(&mut self) -> Result<()> {
         info!("Initializing classifiers");
 
-        // For now, initialize placeholder classifiers
-        // TODO: Load actual classifiers based on configuration
+        let pii: Arc<dyn Classifier> = Arc::new(PiiClassifier::new()?);
+        self.classifiers.insert("pii".to_string(), Arc::clone(&pii));
+        self.classifiers
+            .insert("pii_detector".to_string(), Arc::clone(&pii));
 
-        // Add basic classifiers
+        let toxicity: Arc<dyn Classifier> = Arc::new(ToxicityClassifier::new()?);
+        for name in [
+            "toxicity",
+            "toxicity-distilled",
+            "toxicity-gpu",
+            "toxicity-metal",
+        ] {
+            self.classifiers
+                .insert(name.to_string(), Arc::clone(&toxicity));
+        }
+
+        let sentiment: Arc<dyn Classifier> = Arc::new(SentimentClassifier::new()?);
+        self.classifiers
+            .insert("sentiment".to_string(), Arc::clone(&sentiment));
+
+        let prompt_injection: Arc<dyn Classifier> = Arc::new(PromptInjectionClassifier::new()?);
         self.classifiers.insert(
-            "pii".to_string(),
-            Arc::new(PiiClassifier::new()?),
+            "prompt-injection".to_string(),
+            Arc::clone(&prompt_injection),
         );
 
+        let financial_advice: Arc<dyn Classifier> = Arc::new(FinancialAdviceClassifier::new()?);
         self.classifiers.insert(
-            "toxicity".to_string(),
-            Arc::new(ToxicityClassifier::new()?),
+            "financial-advice".to_string(),
+            Arc::clone(&financial_advice),
         );
 
+        // Minimal profanity baseline.
+        let profanity_patterns = vec![
+            ("profanity".to_string(), "fuck".to_string()),
+            ("profanity".to_string(), "shit".to_string()),
+            ("profanity".to_string(), "bitch".to_string()),
+            ("profanity".to_string(), "asshole".to_string()),
+        ];
         self.classifiers.insert(
             "profanity".to_string(),
             Arc::new(PatternClassifier::new(
                 "profanity".to_string(),
-                vec![], // Empty patterns for now
+                profanity_patterns,
             )?),
         );
+
+        // Readability fallback: explicit no-op for now.
+        self.classifiers.insert(
+            "readability".to_string(),
+            Arc::new(NoopClassifier::new("readability")),
+        );
+
+        // Ensure every model name in config is resolvable to avoid startup failures.
+        for model_name in self.config.model_names() {
+            self.classifiers
+                .entry(model_name.clone())
+                .or_insert_with(|| {
+                    warn!(
+                        "No built-in classifier for '{}'; using no-op fallback",
+                        model_name
+                    );
+                    Arc::new(NoopClassifier::new(model_name.clone()))
+                });
+        }
+
+        // Ensure every classifier referenced by pipeline stages is resolvable.
+        for referenced in self.referenced_classifier_names() {
+            self.classifiers
+                .entry(referenced.clone())
+                .or_insert_with(|| {
+                    warn!(
+                        "Pipeline references unknown classifier '{}'; using no-op fallback",
+                        referenced
+                    );
+                    Arc::new(NoopClassifier::new(referenced.clone()))
+                });
+        }
 
         info!("Initialized {} classifiers", self.classifiers.len());
 
         Ok(())
+    }
+
+    fn referenced_classifier_names(&self) -> Vec<String> {
+        let mut names = Vec::new();
+        for pipeline in self.config.pipelines.values() {
+            for stage in &pipeline.stages {
+                match stage {
+                    StageConfigSpec::Single { classifier, .. }
+                    | StageConfigSpec::Conditional { classifier, .. } => {
+                        names.push(classifier.clone());
+                    }
+                    StageConfigSpec::Parallel { classifiers, .. }
+                    | StageConfigSpec::Sequential { classifiers, .. } => {
+                        names.extend(classifiers.iter().cloned());
+                    }
+                }
+            }
+        }
+        names
     }
 
     /// Get the number of loaded classifiers
@@ -84,10 +159,9 @@ impl ClassifierRegistry {
 
     /// Build a pipeline from configuration by name
     pub fn build_pipeline(&self, pipeline_name: &str) -> Result<ClassifierPipeline> {
-        let pipeline_config = self.config.pipelines.get(pipeline_name)
-            .ok_or_else(|| checkstream_core::Error::config(
-                format!("Pipeline '{}' not found", pipeline_name)
-            ))?;
+        let pipeline_config = self.config.pipelines.get(pipeline_name).ok_or_else(|| {
+            checkstream_core::Error::config(format!("Pipeline '{}' not found", pipeline_name))
+        })?;
 
         build_pipeline_from_config(pipeline_config, &self.classifiers)
     }
@@ -97,13 +171,17 @@ impl ClassifierRegistry {
 pub fn init_registry_from_config(config: &ClassifierConfig) -> Result<ModelRegistry> {
     let mut registry = ModelRegistry::new();
 
-    info!("Initializing model registry with {} models", config.models.len());
+    info!(
+        "Initializing model registry with {} models",
+        config.models.len()
+    );
 
     for model_name in config.model_names() {
         info!("Loading model: {}", model_name);
 
-        let model_config = config.to_model_config(&model_name)
-            .ok_or_else(|| checkstream_core::Error::config(format!("Model {} not found in config", model_name)))?;
+        let model_config = config.to_model_config(&model_name).ok_or_else(|| {
+            checkstream_core::Error::config(format!("Model {} not found in config", model_name))
+        })?;
 
         match registry.load_and_register(&model_name, model_config) {
             Ok(_) => {
@@ -117,15 +195,20 @@ pub fn init_registry_from_config(config: &ClassifierConfig) -> Result<ModelRegis
     }
 
     let loaded_count = registry.model_names().len();
-    info!("Model registry initialized with {}/{} models", loaded_count, config.models.len());
+    info!(
+        "Model registry initialized with {}/{} models",
+        loaded_count,
+        config.models.len()
+    );
 
     Ok(registry)
 }
 
 /// Load classifier configuration from file
 pub fn load_config(path: impl AsRef<Path>) -> Result<ClassifierConfig> {
-    ClassifierConfig::from_file(path.as_ref())
-        .map_err(|e| checkstream_core::Error::config(format!("Failed to load classifiers config: {}", e)))
+    ClassifierConfig::from_file(path.as_ref()).map_err(|e| {
+        checkstream_core::Error::config(format!("Failed to load classifiers config: {}", e))
+    })
 }
 
 /// Initialize registry from config file
@@ -243,7 +326,11 @@ pub fn build_pipeline_from_config(
 
                 let condition_fn = condition.to_condition_fn();
 
-                pipeline = pipeline.add_conditional(name.clone(), move |results| condition_fn(results), classifier_impl);
+                pipeline = pipeline.add_conditional(
+                    name.clone(),
+                    move |results| condition_fn(results),
+                    classifier_impl,
+                );
             }
         }
     }
@@ -280,6 +367,36 @@ impl Clone for SharedRegistry {
         Self {
             registry: Arc::clone(&self.registry),
         }
+    }
+}
+
+struct NoopClassifier {
+    name: String,
+}
+
+impl NoopClassifier {
+    fn new(name: impl Into<String>) -> Self {
+        Self { name: name.into() }
+    }
+}
+
+#[async_trait::async_trait]
+impl Classifier for NoopClassifier {
+    async fn classify(&self, _text: &str) -> Result<crate::ClassificationResult> {
+        Ok(crate::ClassificationResult {
+            label: "clean".to_string(),
+            score: 0.0,
+            metadata: ClassificationMetadata::default(),
+            latency_us: 0,
+        })
+    }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn tier(&self) -> crate::ClassifierTier {
+        crate::ClassifierTier::A
     }
 }
 

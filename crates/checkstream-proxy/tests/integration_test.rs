@@ -2,9 +2,9 @@
 //!
 //! Tests the full pipeline including classifiers, policy engine, and action execution.
 
-use checkstream_policy::{PolicyEngine, Policy, Rule, Trigger, Action, ActionExecutor};
 use checkstream_policy::action::LogLevel;
 use checkstream_policy::trigger::CompositeOperator;
+use checkstream_policy::{Action, ActionExecutor, Policy, PolicyEngine, Rule, Trigger};
 use std::collections::HashMap;
 
 /// Test policy engine pattern matching
@@ -17,22 +17,20 @@ async fn test_policy_pattern_matching() {
         description: "Test policy".to_string(),
         version: "1.0".to_string(),
         regulation: None,
-        rules: vec![
-            Rule {
-                name: "unsafe-content".to_string(),
-                description: "Detect unsafe content".to_string(),
-                trigger: Trigger::Pattern {
-                    pattern: "unsafe".to_string(),
-                    case_insensitive: true,
-                },
-                actions: vec![Action::Stop {
-                    message: Some("Content blocked".to_string()),
-                    status_code: 403,
-                }],
-                regulation: None,
-                enabled: true,
-            }
-        ],
+        rules: vec![Rule {
+            name: "unsafe-content".to_string(),
+            description: "Detect unsafe content".to_string(),
+            trigger: Trigger::Pattern {
+                pattern: "unsafe".to_string(),
+                case_insensitive: true,
+            },
+            actions: vec![Action::Stop {
+                message: Some("Content blocked".to_string()),
+                status_code: 403,
+            }],
+            regulation: None,
+            enabled: true,
+        }],
     };
 
     engine.add_policy(policy);
@@ -57,22 +55,20 @@ async fn test_policy_classifier_trigger() {
         description: "ML-based policy".to_string(),
         version: "1.0".to_string(),
         regulation: None,
-        rules: vec![
-            Rule {
-                name: "toxicity-check".to_string(),
-                description: "Block toxic content".to_string(),
-                trigger: Trigger::Classifier {
-                    classifier: "toxicity".to_string(),
-                    threshold: 0.7,
-                },
-                actions: vec![Action::Stop {
-                    message: Some("Toxic content blocked".to_string()),
-                    status_code: 403,
-                }],
-                regulation: None,
-                enabled: true,
-            }
-        ],
+        rules: vec![Rule {
+            name: "toxicity-check".to_string(),
+            description: "Block toxic content".to_string(),
+            trigger: Trigger::Classifier {
+                classifier: "toxicity".to_string(),
+                threshold: 0.7,
+            },
+            actions: vec![Action::Stop {
+                message: Some("Toxic content blocked".to_string()),
+                status_code: 403,
+            }],
+            regulation: None,
+            enabled: true,
+        }],
     };
 
     engine.add_policy(policy);
@@ -105,28 +101,26 @@ async fn test_action_executor() {
         description: "Test policy".to_string(),
         version: "1.0".to_string(),
         regulation: None,
-        rules: vec![
-            Rule {
-                name: "block-rule".to_string(),
-                description: "Block content".to_string(),
-                trigger: Trigger::Pattern {
-                    pattern: "blocked".to_string(),
-                    case_insensitive: true,
+        rules: vec![Rule {
+            name: "block-rule".to_string(),
+            description: "Block content".to_string(),
+            trigger: Trigger::Pattern {
+                pattern: "blocked".to_string(),
+                case_insensitive: true,
+            },
+            actions: vec![
+                Action::Log {
+                    message: "Content matched block rule".to_string(),
+                    level: LogLevel::Warn,
                 },
-                actions: vec![
-                    Action::Log {
-                        message: "Content matched block rule".to_string(),
-                        level: LogLevel::Warn,
-                    },
-                    Action::Stop {
-                        message: Some("Blocked by policy".to_string()),
-                        status_code: 403,
-                    },
-                ],
-                regulation: None,
-                enabled: true,
-            }
-        ],
+                Action::Stop {
+                    message: Some("Blocked by policy".to_string()),
+                    status_code: 403,
+                },
+            ],
+            regulation: None,
+            enabled: true,
+        }],
     };
 
     engine.add_policy(policy);
@@ -150,31 +144,29 @@ async fn test_composite_triggers_and() {
         description: "Composite trigger policy".to_string(),
         version: "1.0".to_string(),
         regulation: None,
-        rules: vec![
-            Rule {
-                name: "combined-rule".to_string(),
-                description: "Match both conditions".to_string(),
-                trigger: Trigger::Composite {
-                    operator: CompositeOperator::And,
-                    triggers: vec![
-                        Box::new(Trigger::Pattern {
-                            pattern: "secret".to_string(),
-                            case_insensitive: true,
-                        }),
-                        Box::new(Trigger::Pattern {
-                            pattern: "password".to_string(),
-                            case_insensitive: true,
-                        }),
-                    ],
-                },
-                actions: vec![Action::Stop {
-                    message: Some("Credentials detected".to_string()),
-                    status_code: 403,
-                }],
-                regulation: None,
-                enabled: true,
-            }
-        ],
+        rules: vec![Rule {
+            name: "combined-rule".to_string(),
+            description: "Match both conditions".to_string(),
+            trigger: Trigger::Composite {
+                operator: CompositeOperator::And,
+                triggers: vec![
+                    Box::new(Trigger::Pattern {
+                        pattern: "secret".to_string(),
+                        case_insensitive: true,
+                    }),
+                    Box::new(Trigger::Pattern {
+                        pattern: "password".to_string(),
+                        case_insensitive: true,
+                    }),
+                ],
+            },
+            actions: vec![Action::Stop {
+                message: Some("Credentials detected".to_string()),
+                status_code: 403,
+            }],
+            regulation: None,
+            enabled: true,
+        }],
     };
 
     engine.add_policy(policy);
@@ -198,31 +190,29 @@ async fn test_composite_triggers_or() {
         description: "OR trigger policy".to_string(),
         version: "1.0".to_string(),
         regulation: None,
-        rules: vec![
-            Rule {
-                name: "either-rule".to_string(),
-                description: "Match either condition".to_string(),
-                trigger: Trigger::Composite {
-                    operator: CompositeOperator::Or,
-                    triggers: vec![
-                        Box::new(Trigger::Pattern {
-                            pattern: "secret".to_string(),
-                            case_insensitive: true,
-                        }),
-                        Box::new(Trigger::Pattern {
-                            pattern: "password".to_string(),
-                            case_insensitive: true,
-                        }),
-                    ],
-                },
-                actions: vec![Action::Stop {
-                    message: Some("Sensitive content detected".to_string()),
-                    status_code: 403,
-                }],
-                regulation: None,
-                enabled: true,
-            }
-        ],
+        rules: vec![Rule {
+            name: "either-rule".to_string(),
+            description: "Match either condition".to_string(),
+            trigger: Trigger::Composite {
+                operator: CompositeOperator::Or,
+                triggers: vec![
+                    Box::new(Trigger::Pattern {
+                        pattern: "secret".to_string(),
+                        case_insensitive: true,
+                    }),
+                    Box::new(Trigger::Pattern {
+                        pattern: "password".to_string(),
+                        case_insensitive: true,
+                    }),
+                ],
+            },
+            actions: vec![Action::Stop {
+                message: Some("Sensitive content detected".to_string()),
+                status_code: 403,
+            }],
+            regulation: None,
+            enabled: true,
+        }],
     };
 
     engine.add_policy(policy);
@@ -308,22 +298,20 @@ async fn test_disabled_rules() {
         description: "Policy with disabled rule".to_string(),
         version: "1.0".to_string(),
         regulation: None,
-        rules: vec![
-            Rule {
-                name: "disabled-rule".to_string(),
-                description: "This rule is disabled".to_string(),
-                trigger: Trigger::Pattern {
-                    pattern: "trigger".to_string(),
-                    case_insensitive: true,
-                },
-                actions: vec![Action::Stop {
-                    message: Some("Should not trigger".to_string()),
-                    status_code: 500,
-                }],
-                regulation: None,
-                enabled: false,  // Disabled
+        rules: vec![Rule {
+            name: "disabled-rule".to_string(),
+            description: "This rule is disabled".to_string(),
+            trigger: Trigger::Pattern {
+                pattern: "trigger".to_string(),
+                case_insensitive: true,
             },
-        ],
+            actions: vec![Action::Stop {
+                message: Some("Should not trigger".to_string()),
+                status_code: 500,
+            }],
+            regulation: None,
+            enabled: false, // Disabled
+        }],
     };
 
     engine.add_policy(policy);
@@ -342,21 +330,19 @@ async fn test_action_executor_modifications() {
         description: "Policy with modification actions".to_string(),
         version: "1.0".to_string(),
         regulation: None,
-        rules: vec![
-            Rule {
-                name: "redact-rule".to_string(),
-                description: "Redact sensitive content".to_string(),
-                trigger: Trigger::Pattern {
-                    pattern: "password".to_string(),
-                    case_insensitive: true,
-                },
-                actions: vec![Action::Redact {
-                    replacement: "[REDACTED]".to_string(),
-                }],
-                regulation: None,
-                enabled: true,
+        rules: vec![Rule {
+            name: "redact-rule".to_string(),
+            description: "Redact sensitive content".to_string(),
+            trigger: Trigger::Pattern {
+                pattern: "password".to_string(),
+                case_insensitive: true,
             },
-        ],
+            actions: vec![Action::Redact {
+                replacement: "[REDACTED]".to_string(),
+            }],
+            regulation: None,
+            enabled: true,
+        }],
     };
 
     engine.add_policy(policy);
@@ -379,22 +365,20 @@ async fn test_action_executor_audit() {
         description: "Policy with audit action".to_string(),
         version: "1.0".to_string(),
         regulation: None,
-        rules: vec![
-            Rule {
-                name: "audit-rule".to_string(),
-                description: "Audit access".to_string(),
-                trigger: Trigger::Pattern {
-                    pattern: "audit".to_string(),
-                    case_insensitive: true,
-                },
-                actions: vec![Action::Audit {
-                    category: "access".to_string(),
-                    severity: checkstream_policy::action::AuditSeverity::Medium,
-                }],
-                regulation: None,
-                enabled: true,
+        rules: vec![Rule {
+            name: "audit-rule".to_string(),
+            description: "Audit access".to_string(),
+            trigger: Trigger::Pattern {
+                pattern: "audit".to_string(),
+                case_insensitive: true,
             },
-        ],
+            actions: vec![Action::Audit {
+                category: "access".to_string(),
+                severity: checkstream_policy::action::AuditSeverity::Medium,
+            }],
+            regulation: None,
+            enabled: true,
+        }],
     };
 
     engine.add_policy(policy);
@@ -419,19 +403,17 @@ async fn test_case_sensitivity() {
         description: "Case insensitive".to_string(),
         version: "1.0".to_string(),
         regulation: None,
-        rules: vec![
-            Rule {
-                name: "insensitive-rule".to_string(),
-                description: "Case insensitive match".to_string(),
-                trigger: Trigger::Pattern {
-                    pattern: "UNSAFE".to_string(),
-                    case_insensitive: true,
-                },
-                actions: vec![],
-                regulation: None,
-                enabled: true,
+        rules: vec![Rule {
+            name: "insensitive-rule".to_string(),
+            description: "Case insensitive match".to_string(),
+            trigger: Trigger::Pattern {
+                pattern: "UNSAFE".to_string(),
+                case_insensitive: true,
             },
-        ],
+            actions: vec![],
+            regulation: None,
+            enabled: true,
+        }],
     };
 
     engine.add_policy(policy1);
@@ -446,19 +428,17 @@ async fn test_case_sensitivity() {
         description: "Case sensitive".to_string(),
         version: "1.0".to_string(),
         regulation: None,
-        rules: vec![
-            Rule {
-                name: "sensitive-rule".to_string(),
-                description: "Case sensitive match".to_string(),
-                trigger: Trigger::Pattern {
-                    pattern: "UNSAFE".to_string(),
-                    case_insensitive: false,
-                },
-                actions: vec![],
-                regulation: None,
-                enabled: true,
+        rules: vec![Rule {
+            name: "sensitive-rule".to_string(),
+            description: "Case sensitive match".to_string(),
+            trigger: Trigger::Pattern {
+                pattern: "UNSAFE".to_string(),
+                case_insensitive: false,
             },
-        ],
+            actions: vec![],
+            regulation: None,
+            enabled: true,
+        }],
     };
 
     engine2.add_policy(policy2);

@@ -6,11 +6,13 @@
 //! - Conditional execution based on results
 //! - Result aggregation and combination
 
-use crate::{Classifier, ClassificationResult};
+use crate::{ClassificationResult, Classifier};
 use checkstream_core::Result;
 use futures::future::join_all;
 use std::sync::Arc;
 use std::time::Instant;
+
+type StageCondition = dyn Fn(&[PipelineResult]) -> bool + Send + Sync;
 
 /// A pipeline of classifiers that can be executed in parallel or sequentially
 #[derive(Clone)]
@@ -43,7 +45,7 @@ pub enum PipelineStage {
     /// Conditional execution based on previous results
     Conditional {
         name: String,
-        condition: Arc<dyn Fn(&[PipelineResult]) -> bool + Send + Sync>,
+        condition: Arc<StageCondition>,
         classifier: Arc<dyn Classifier>,
     },
 }
@@ -195,7 +197,10 @@ impl ClassifierPipeline {
                 name,
                 classifiers,
                 aggregation,
-            } => self.execute_parallel(name, classifiers, text, *aggregation).await,
+            } => {
+                self.execute_parallel(name, classifiers, text, *aggregation)
+                    .await
+            }
 
             PipelineStage::Sequential { name, classifiers } => {
                 self.execute_sequential(name, classifiers, text).await
@@ -311,9 +316,10 @@ impl ClassifierPipeline {
             }
 
             AggregationStrategy::MaxScore => {
-                if let Some(max_result) = results.iter().max_by(|a, b| {
-                    a.result.score.partial_cmp(&b.result.score).unwrap()
-                }) {
+                if let Some(max_result) = results
+                    .iter()
+                    .max_by(|a, b| a.result.score.partial_cmp(&b.result.score).unwrap())
+                {
                     let max_result = max_result.clone();
                     results.clear();
                     results.push(max_result);
@@ -321,9 +327,10 @@ impl ClassifierPipeline {
             }
 
             AggregationStrategy::MinScore => {
-                if let Some(min_result) = results.iter().min_by(|a, b| {
-                    a.result.score.partial_cmp(&b.result.score).unwrap()
-                }) {
+                if let Some(min_result) = results
+                    .iter()
+                    .min_by(|a, b| a.result.score.partial_cmp(&b.result.score).unwrap())
+                {
                     let min_result = min_result.clone();
                     results.clear();
                     results.push(min_result);
@@ -352,8 +359,8 @@ impl ClassifierPipeline {
 
             AggregationStrategy::WeightedAverage => {
                 if !results.is_empty() {
-                    let avg_score: f32 = results.iter().map(|r| r.result.score).sum::<f32>()
-                        / results.len() as f32;
+                    let avg_score: f32 =
+                        results.iter().map(|r| r.result.score).sum::<f32>() / results.len() as f32;
 
                     // Create an aggregated result
                     let mut aggregated = results[0].clone();
@@ -476,7 +483,12 @@ mod tests {
     impl Classifier for MockClassifier {
         async fn classify(&self, _text: &str) -> Result<ClassificationResult> {
             Ok(ClassificationResult {
-                label: if self.score >= 0.5 { "positive" } else { "negative" }.to_string(),
+                label: if self.score >= 0.5 {
+                    "positive"
+                } else {
+                    "negative"
+                }
+                .to_string(),
                 score: self.score,
                 metadata: ClassificationMetadata::default(),
                 latency_us: 1000,
@@ -584,9 +596,7 @@ mod tests {
             .add_single("stage1", initial_classifier)
             .add_conditional(
                 "conditional_stage",
-                |results: &[PipelineResult]| {
-                    results.iter().any(|r| r.result.score > 0.7)
-                },
+                |results: &[PipelineResult]| results.iter().any(|r| r.result.score > 0.7),
                 conditional_classifier,
             );
 
@@ -603,9 +613,7 @@ mod tests {
             score: 0.6,
         });
 
-        let pipeline = PipelineBuilder::new()
-            .single("stage1", c1)
-            .build();
+        let pipeline = PipelineBuilder::new().single("stage1", c1).build();
 
         let result = pipeline.execute("test").await.unwrap();
         assert_eq!(result.results.len(), 1);

@@ -2,28 +2,45 @@ use crate::models::DemoConfig;
 use crate::server::{routes, static_files, websocket};
 use crate::state::DemoAppState;
 use axum::{
+    http::HeaderValue,
     routing::{get, post},
     Router,
 };
 use std::net::SocketAddr;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 
 /// Build the Axum application
 pub fn build_app(config: DemoConfig) -> Router {
     let state = DemoAppState::new(config);
 
-    // CORS configuration for development
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+    // CORS defaults to local origins; override only for explicit demo use.
+    let allow_any_origin = std::env::var("CHECKSTREAM_DEMO_ALLOW_ANY_ORIGIN")
+        .ok()
+        .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
+    let cors = if allow_any_origin {
+        CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods(Any)
+            .allow_headers(Any)
+    } else {
+        CorsLayer::new()
+            .allow_origin(AllowOrigin::list([
+                HeaderValue::from_static("http://localhost:5173"),
+                HeaderValue::from_static("http://127.0.0.1:5173"),
+            ]))
+            .allow_methods(Any)
+            .allow_headers(Any)
+    };
 
     // API routes
     let api_routes = Router::new()
         // Health
         .route("/health", get(routes::health))
         // Configuration
-        .route("/config", get(routes::get_config).put(routes::update_config))
+        .route(
+            "/config",
+            get(routes::get_config).put(routes::update_config),
+        )
         .route(
             "/config/issues",
             get(routes::get_issue_config).put(routes::update_issue_config),

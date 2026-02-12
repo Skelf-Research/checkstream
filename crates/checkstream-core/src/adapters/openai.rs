@@ -27,7 +27,9 @@ impl OpenAiAdapter {
 
     /// Create with custom settings
     pub fn with_settings(preserve_tool_calls: bool) -> Self {
-        Self { preserve_tool_calls }
+        Self {
+            preserve_tool_calls,
+        }
     }
 
     /// Parse a single SSE data line

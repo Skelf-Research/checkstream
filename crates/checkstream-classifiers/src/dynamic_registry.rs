@@ -2,9 +2,8 @@
 
 use crate::classifier::Classifier;
 use crate::generic_loader::GenericModelLoader;
+use crate::loader_plugin::ModelLoaderPlugin;
 use crate::model_config::ModelRegistry;
-use crate::pii::PiiClassifier;
-use crate::patterns::PatternClassifier;
 use checkstream_core::Result;
 use std::collections::HashMap;
 use std::path::Path;
@@ -13,25 +12,29 @@ use tokio::sync::RwLock;
 
 /// Dynamic classifier registry that loads classifiers from model registry
 pub struct DynamicClassifierRegistry {
-    model_loader: Arc<GenericModelLoader>,
+    model_loader: Arc<dyn ModelLoaderPlugin>,
     classifiers: Arc<RwLock<HashMap<String, Arc<dyn Classifier>>>>,
 }
 
 impl DynamicClassifierRegistry {
-    /// Create a new dynamic registry from a model registry file
-    pub async fn from_file(path: impl AsRef<Path>) -> Result<Self> {
-        let model_registry = ModelRegistry::from_file(path)
-            .map_err(|e| checkstream_core::Error::classifier(
-                format!("Failed to load model registry: {}", e)
-            ))?;
-
-        let model_loader = Arc::new(GenericModelLoader::new(model_registry));
+    /// Create a new dynamic registry from a model loader plugin.
+    pub fn from_loader(model_loader: Arc<dyn ModelLoaderPlugin>) -> Self {
         let classifiers = Arc::new(RwLock::new(HashMap::new()));
-
-        Ok(Self {
+        Self {
             model_loader,
             classifiers,
-        })
+        }
+    }
+
+    /// Create a new dynamic registry from a model registry file
+    pub async fn from_file(path: impl AsRef<Path>) -> Result<Self> {
+        let model_registry = ModelRegistry::from_file(path).map_err(|e| {
+            checkstream_core::Error::classifier(format!("Failed to load model registry: {}", e))
+        })?;
+
+        let model_loader: Arc<dyn ModelLoaderPlugin> =
+            Arc::new(GenericModelLoader::new(model_registry));
+        Ok(Self::from_loader(model_loader))
     }
 
     /// Get a classifier by name (loads on first access)
@@ -74,13 +77,14 @@ impl DynamicClassifierRegistry {
 
     /// List all available model names
     pub fn available_models(&self) -> Vec<String> {
-        self.model_loader.registry.models.keys().cloned().collect()
+        self.model_loader.available_models()
     }
 }
 
 /// Builder for dynamic classifier registry with convenience methods
 pub struct DynamicRegistryBuilder {
     model_registry_path: Option<String>,
+    model_loader: Option<Arc<dyn ModelLoaderPlugin>>,
     builtin_classifiers: Vec<(String, Arc<dyn Classifier>)>,
     preload: Vec<String>,
 }
@@ -90,6 +94,7 @@ impl DynamicRegistryBuilder {
     pub fn new() -> Self {
         Self {
             model_registry_path: None,
+            model_loader: None,
             builtin_classifiers: Vec::new(),
             preload: Vec::new(),
         }
@@ -101,8 +106,18 @@ impl DynamicRegistryBuilder {
         self
     }
 
+    /// Use a custom model-loader plugin implementation.
+    pub fn with_loader(mut self, loader: Arc<dyn ModelLoaderPlugin>) -> Self {
+        self.model_loader = Some(loader);
+        self
+    }
+
     /// Register a built-in classifier
-    pub fn with_builtin(mut self, name: impl Into<String>, classifier: Arc<dyn Classifier>) -> Self {
+    pub fn with_builtin(
+        mut self,
+        name: impl Into<String>,
+        classifier: Arc<dyn Classifier>,
+    ) -> Self {
         self.builtin_classifiers.push((name.into(), classifier));
         self
     }
@@ -115,10 +130,14 @@ impl DynamicRegistryBuilder {
 
     /// Build the registry
     pub async fn build(self) -> Result<DynamicClassifierRegistry> {
-        let registry_path = self.model_registry_path
-            .unwrap_or_else(|| "models/registry.yaml".to_string());
-
-        let registry = DynamicClassifierRegistry::from_file(&registry_path).await?;
+        let registry = if let Some(loader) = self.model_loader {
+            DynamicClassifierRegistry::from_loader(loader)
+        } else {
+            let registry_path = self
+                .model_registry_path
+                .unwrap_or_else(|| "models/registry.yaml".to_string());
+            DynamicClassifierRegistry::from_file(&registry_path).await?
+        };
 
         // Register built-ins
         for (name, classifier) in self.builtin_classifiers {
@@ -143,13 +162,68 @@ impl Default for DynamicRegistryBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::classifier::{ClassificationMetadata, ClassificationResult, ClassifierTier};
+    use crate::loader_plugin::ModelLoaderPlugin;
+
+    struct MockClassifier {
+        name: String,
+    }
+
+    #[async_trait::async_trait]
+    impl Classifier for MockClassifier {
+        async fn classify(&self, _text: &str) -> Result<ClassificationResult> {
+            Ok(ClassificationResult {
+                label: "ok".to_string(),
+                score: 1.0,
+                metadata: ClassificationMetadata::default(),
+                latency_us: 0,
+            })
+        }
+
+        fn name(&self) -> &str {
+            &self.name
+        }
+
+        fn tier(&self) -> ClassifierTier {
+            ClassifierTier::A
+        }
+    }
+
+    struct MockLoader;
+
+    #[async_trait::async_trait]
+    impl ModelLoaderPlugin for MockLoader {
+        async fn load_classifier(&self, name: &str) -> Result<Box<dyn Classifier>> {
+            Ok(Box::new(MockClassifier {
+                name: name.to_string(),
+            }))
+        }
+
+        fn available_models(&self) -> Vec<String> {
+            vec!["mock".to_string()]
+        }
+    }
 
     #[tokio::test]
     async fn test_dynamic_registry_builder() {
-        let builder = DynamicRegistryBuilder::new()
-            .with_model_registry("models/registry.yaml");
+        let builder = DynamicRegistryBuilder::new().with_model_registry("models/registry.yaml");
 
         // This will fail if the file doesn't exist, which is fine for testing
         let _ = builder.build().await;
+    }
+
+    #[tokio::test]
+    async fn test_dynamic_registry_builder_with_loader() {
+        let registry = DynamicRegistryBuilder::new()
+            .with_loader(Arc::new(MockLoader))
+            .preload("mock")
+            .build()
+            .await
+            .unwrap();
+
+        assert_eq!(registry.available_models(), vec!["mock".to_string()]);
+
+        let classifier = registry.get_classifier("mock").await.unwrap();
+        assert_eq!(classifier.name(), "mock");
     }
 }

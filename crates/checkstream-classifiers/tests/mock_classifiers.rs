@@ -4,10 +4,8 @@
 //! for testing pipelines, aggregation strategies, and error handling.
 
 use async_trait::async_trait;
-use checkstream_classifiers::{
-    Classifier, ClassificationResult, ClassifierTier,
-};
 use checkstream_classifiers::classifier::ClassificationMetadata;
+use checkstream_classifiers::{ClassificationResult, Classifier, ClassifierTier};
 use checkstream_core::Result;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
@@ -101,7 +99,10 @@ impl Classifier for MockClassifier {
             label,
             score,
             metadata: ClassificationMetadata::default(),
-            latency_us: self.simulated_latency.map(|d| d.as_micros() as u64).unwrap_or(100),
+            latency_us: self
+                .simulated_latency
+                .map(|d| d.as_micros() as u64)
+                .unwrap_or(100),
         })
     }
 
@@ -173,7 +174,7 @@ impl VariableLatencyClassifier {
 impl Classifier for VariableLatencyClassifier {
     async fn classify(&self, text: &str) -> Result<ClassificationResult> {
         // Simple pseudo-random variance based on text length
-        let variance = (text.len() as u64 % (self.variance_us + 1)) as u64;
+        let variance = text.len() as u64 % (self.variance_us + 1);
         let latency = Duration::from_micros(self.base_latency_us + variance);
 
         tokio::time::sleep(latency).await;
@@ -223,8 +224,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_failing_classifier() {
-        let classifier = FailingClassifier::new("fail-test")
-            .with_error("Custom error");
+        let classifier = FailingClassifier::new("fail-test").with_error("Custom error");
 
         let result = classifier.classify("test").await;
         assert!(result.is_err());
@@ -232,8 +232,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_classifier_latency() {
-        let classifier = MockClassifier::new("slow")
-            .with_latency(Duration::from_millis(10));
+        let classifier = MockClassifier::new("slow").with_latency(Duration::from_millis(10));
 
         let start = std::time::Instant::now();
         let _ = classifier.classify("test").await;

@@ -10,7 +10,7 @@ use crate::audit::{AuditEvent, AuditSeverity as TelemetrySeverity};
 use crate::persistence::{
     AuditQuery, AuditReader, AuditWriter, ExportFormat, PersistedAuditEvent, PersistenceConfig,
 };
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
@@ -22,15 +22,12 @@ pub struct AuditService {
 
     /// Reader for queries (can be used directly)
     reader: Arc<AuditReader>,
-
-    /// Configuration
-    config: PersistenceConfig,
 }
 
 /// Commands sent to the background writer
 enum AuditCommand {
     /// Record an event
-    Record(PersistedAuditEvent),
+    Record(Box<PersistedAuditEvent>),
 
     /// Flush to disk
     Flush,
@@ -55,26 +52,18 @@ impl AuditService {
 
         info!("Audit service started with dir: {:?}", config.audit_dir);
 
-        Ok(Self {
-            sender,
-            reader,
-            config,
-        })
+        Ok(Self { sender, reader })
     }
 
     /// Record an audit event asynchronously
     pub fn record(&self, event: PersistedAuditEvent) {
-        if let Err(e) = self.sender.send(AuditCommand::Record(event)) {
+        if let Err(e) = self.sender.send(AuditCommand::Record(Box::new(event))) {
             warn!("Failed to send audit event: {}", e);
         }
     }
 
     /// Record an audit event from policy executor
-    pub fn record_from_policy(
-        &self,
-        record: &PolicyAuditRecord,
-        request_context: &RequestContext,
-    ) {
+    pub fn record_from_policy(&self, record: &PolicyAuditRecord, request_context: &RequestContext) {
         let severity = match record.severity {
             PolicySeverity::Low => TelemetrySeverity::Info,
             PolicySeverity::Medium => TelemetrySeverity::Warning,
@@ -82,8 +71,7 @@ impl AuditService {
             PolicySeverity::Critical => TelemetrySeverity::Critical,
         };
 
-        let mut event = AuditEvent::new(&record.category)
-            .with_severity(severity);
+        let mut event = AuditEvent::new(&record.category).with_severity(severity);
 
         if let Some(ref context) = record.context {
             event = event.with_data(serde_json::json!({
@@ -213,7 +201,7 @@ fn run_writer(
         while let Some(cmd) = receiver.recv().await {
             match cmd {
                 AuditCommand::Record(event) => {
-                    if let Err(e) = writer.write_event(&event) {
+                    if let Err(e) = writer.write_event(event.as_ref()) {
                         error!("Failed to write audit event: {}", e);
                     }
                 }
@@ -363,8 +351,7 @@ mod tests {
             context: Some("matched content".to_string()),
         };
 
-        let ctx = RequestContext::new("req-002", "egress")
-            .with_model("gpt-4");
+        let ctx = RequestContext::new("req-002", "egress").with_model("gpt-4");
 
         service.record_from_policy(&policy_record, &ctx);
 

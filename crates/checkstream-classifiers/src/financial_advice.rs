@@ -15,7 +15,7 @@
 //! - COBS 4: Fair, clear, and not misleading
 //! - Consumer Duty: Acting in customers' best interests
 
-use crate::classifier::{Classifier, ClassificationResult, ClassificationMetadata, ClassifierTier};
+use crate::classifier::{ClassificationMetadata, ClassificationResult, Classifier, ClassifierTier};
 use aho_corasick::AhoCorasick;
 use checkstream_core::Result;
 use std::time::Instant;
@@ -242,9 +242,12 @@ impl FinancialAdviceClassifier {
         AhoCorasick::builder()
             .ascii_case_insensitive(true)
             .build(patterns)
-            .map_err(|e| checkstream_core::Error::classifier(format!(
-                "Failed to build financial advice pattern matcher: {}", e
-            )))
+            .map_err(|e| {
+                checkstream_core::Error::classifier(format!(
+                    "Failed to build financial advice pattern matcher: {}",
+                    e
+                ))
+            })
     }
 
     /// Detect the highest-risk category in the text
@@ -311,21 +314,19 @@ impl Classifier for FinancialAdviceClassifier {
         let score = category.risk_score();
         let label = category.label().to_string();
 
-        let mut metadata = ClassificationMetadata::default();
-        metadata.spans = matches.iter().map(|(s, e, _)| (*s, *e)).collect();
-
-        // Add matched patterns
+        let mut extra = Vec::new();
         for (_, _, pattern) in &matches {
-            metadata.extra.push(("matched_pattern".to_string(), pattern.clone()));
+            extra.push(("matched_pattern".to_string(), pattern.clone()));
         }
-
-        // Add category info
-        metadata.extra.push(("category".to_string(), label.clone()));
-
-        // Add FCA reference if applicable
+        extra.push(("category".to_string(), label.clone()));
         if let Some(fca_ref) = category.fca_reference() {
-            metadata.extra.push(("fca_reference".to_string(), fca_ref.to_string()));
+            extra.push(("fca_reference".to_string(), fca_ref.to_string()));
         }
+        let metadata = ClassificationMetadata {
+            spans: matches.iter().map(|(s, e, _)| (*s, *e)).collect(),
+            extra,
+            ..Default::default()
+        };
 
         Ok(ClassificationResult {
             label,
@@ -351,9 +352,10 @@ mod tests {
     #[tokio::test]
     async fn test_information_content() {
         let classifier = FinancialAdviceClassifier::new().unwrap();
-        let result = classifier.classify(
-            "An ISA is a tax-efficient savings account. The annual allowance is £20,000."
-        ).await.unwrap();
+        let result = classifier
+            .classify("An ISA is a tax-efficient savings account. The annual allowance is £20,000.")
+            .await
+            .unwrap();
         assert_eq!(result.label, "information");
         assert!(result.score < 0.2);
     }
@@ -361,10 +363,13 @@ mod tests {
     #[tokio::test]
     async fn test_guidance_content() {
         let classifier = FinancialAdviceClassifier::new().unwrap();
-        let result = classifier.classify(
-            "Generally speaking, you might consider diversifying your portfolio. \
-             Options include stocks, bonds, and property."
-        ).await.unwrap();
+        let result = classifier
+            .classify(
+                "Generally speaking, you might consider diversifying your portfolio. \
+             Options include stocks, bonds, and property.",
+            )
+            .await
+            .unwrap();
         assert_eq!(result.label, "guidance");
         assert!(result.score > 0.2 && result.score < 0.5);
     }
@@ -372,10 +377,13 @@ mod tests {
     #[tokio::test]
     async fn test_personal_advice() {
         let classifier = FinancialAdviceClassifier::new().unwrap();
-        let result = classifier.classify(
-            "Based on what you've told me, I recommend you invest in a stocks and shares ISA. \
-             You should buy index funds."
-        ).await.unwrap();
+        let result = classifier
+            .classify(
+                "Based on what you've told me, I recommend you invest in a stocks and shares ISA. \
+             You should buy index funds.",
+            )
+            .await
+            .unwrap();
         assert_eq!(result.label, "personal_advice");
         assert!(result.score > 0.7);
     }
@@ -383,9 +391,12 @@ mod tests {
     #[tokio::test]
     async fn test_suitability_statement() {
         let classifier = FinancialAdviceClassifier::new().unwrap();
-        let result = classifier.classify(
-            "Based on your situation, this pension is right for you and matches your needs."
-        ).await.unwrap();
+        let result = classifier
+            .classify(
+                "Based on your situation, this pension is right for you and matches your needs.",
+            )
+            .await
+            .unwrap();
         assert_eq!(result.label, "suitability");
         assert!(result.score > 0.85);
     }
@@ -393,10 +404,13 @@ mod tests {
     #[tokio::test]
     async fn test_prohibited_claim() {
         let classifier = FinancialAdviceClassifier::new().unwrap();
-        let result = classifier.classify(
-            "This investment offers guaranteed returns with zero risk. \
-             You cannot lose money!"
-        ).await.unwrap();
+        let result = classifier
+            .classify(
+                "This investment offers guaranteed returns with zero risk. \
+             You cannot lose money!",
+            )
+            .await
+            .unwrap();
         assert_eq!(result.label, "prohibited_claim");
         assert!(result.score > 0.95);
     }
@@ -404,24 +418,34 @@ mod tests {
     #[tokio::test]
     async fn test_prohibited_claim_case_insensitive() {
         let classifier = FinancialAdviceClassifier::new().unwrap();
-        let result = classifier.classify("GUARANTEED PROFIT with NO RISK").await.unwrap();
+        let result = classifier
+            .classify("GUARANTEED PROFIT with NO RISK")
+            .await
+            .unwrap();
         assert_eq!(result.label, "prohibited_claim");
     }
 
     #[tokio::test]
     async fn test_fca_reference_in_metadata() {
         let classifier = FinancialAdviceClassifier::new().unwrap();
-        let result = classifier.classify("You should invest in this fund").await.unwrap();
-        assert!(result.metadata.extra.iter()
+        let result = classifier
+            .classify("You should invest in this fund")
+            .await
+            .unwrap();
+        assert!(result
+            .metadata
+            .extra
+            .iter()
             .any(|(k, v)| k == "fca_reference" && v.contains("COBS")));
     }
 
     #[tokio::test]
     async fn test_transfer_pension_advice() {
         let classifier = FinancialAdviceClassifier::new().unwrap();
-        let result = classifier.classify(
-            "You should transfer your pension to this provider"
-        ).await.unwrap();
+        let result = classifier
+            .classify("You should transfer your pension to this provider")
+            .await
+            .unwrap();
         assert_eq!(result.label, "personal_advice");
         assert!(result.score > 0.7);
     }
@@ -429,9 +453,10 @@ mod tests {
     #[tokio::test]
     async fn test_seek_advice_is_guidance() {
         let classifier = FinancialAdviceClassifier::new().unwrap();
-        let result = classifier.classify(
-            "You may want to speak to a financial adviser before making this decision."
-        ).await.unwrap();
+        let result = classifier
+            .classify("You may want to speak to a financial adviser before making this decision.")
+            .await
+            .unwrap();
         assert_eq!(result.label, "guidance");
     }
 
@@ -444,20 +469,26 @@ mod tests {
     #[tokio::test]
     async fn test_latency_within_tier_budget() {
         let classifier = FinancialAdviceClassifier::new().unwrap();
-        let result = classifier.classify(
-            "Tax rules can change. The value of investments can go down as well as up."
-        ).await.unwrap();
+        let result = classifier
+            .classify("Tax rules can change. The value of investments can go down as well as up.")
+            .await
+            .unwrap();
         // Tier A budget is 2000us (2ms)
-        assert!(result.latency_us < 2000, "Latency {}us exceeds Tier A budget", result.latency_us);
+        assert!(
+            result.latency_us < 2000,
+            "Latency {}us exceeds Tier A budget",
+            result.latency_us
+        );
     }
 
     #[tokio::test]
     async fn test_highest_risk_takes_precedence() {
         let classifier = FinancialAdviceClassifier::new().unwrap();
         // Contains both guidance and prohibited claim
-        let result = classifier.classify(
-            "Generally speaking, this is a guaranteed return investment"
-        ).await.unwrap();
+        let result = classifier
+            .classify("Generally speaking, this is a guaranteed return investment")
+            .await
+            .unwrap();
         // Prohibited claim should take precedence
         assert_eq!(result.label, "prohibited_claim");
     }
@@ -465,17 +496,25 @@ mod tests {
     #[tokio::test]
     async fn test_matched_patterns_in_metadata() {
         let classifier = FinancialAdviceClassifier::new().unwrap();
-        let result = classifier.classify("I recommend you should buy this").await.unwrap();
+        let result = classifier
+            .classify("I recommend you should buy this")
+            .await
+            .unwrap();
         assert!(!result.metadata.spans.is_empty());
-        assert!(result.metadata.extra.iter().any(|(k, _)| k == "matched_pattern"));
+        assert!(result
+            .metadata
+            .extra
+            .iter()
+            .any(|(k, _)| k == "matched_pattern"));
     }
 
     #[tokio::test]
     async fn test_clean_non_financial_text() {
         let classifier = FinancialAdviceClassifier::new().unwrap();
-        let result = classifier.classify(
-            "The weather today is sunny with a high of 22 degrees."
-        ).await.unwrap();
+        let result = classifier
+            .classify("The weather today is sunny with a high of 22 degrees.")
+            .await
+            .unwrap();
         // Should default to information (safe) for non-financial content
         assert_eq!(result.label, "information");
         assert!(result.score < 0.2);

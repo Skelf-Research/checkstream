@@ -1,12 +1,12 @@
 //! Policy evaluation engine
 
 use checkstream_core::{Result, Token};
-use regex::Regex;
+use regex::{Regex, RegexBuilder};
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::{Action, Policy, Trigger};
 use crate::trigger::CompositeOperator;
+use crate::{Action, Policy, Trigger};
 
 /// Policy evaluation engine
 pub struct PolicyEngine {
@@ -29,8 +29,9 @@ impl PolicyEngine {
 
     /// Load a policy from file
     pub fn load_policy(&mut self, path: impl AsRef<Path>) -> Result<()> {
-        let policy = Policy::from_file(path)
-            .map_err(|e| checkstream_core::Error::policy(format!("Failed to load policy: {}", e)))?;
+        let policy = Policy::from_file(path).map_err(|e| {
+            checkstream_core::Error::policy(format!("Failed to load policy: {}", e))
+        })?;
 
         // Pre-compile regex patterns for this policy
         self.compile_patterns(&policy);
@@ -54,16 +55,20 @@ impl PolicyEngine {
     /// Recursively compile patterns in triggers
     fn compile_trigger_patterns(&mut self, trigger: &Trigger) {
         match trigger {
-            Trigger::Pattern { pattern, case_insensitive } => {
+            Trigger::Pattern {
+                pattern,
+                case_insensitive,
+            } => {
                 let cache_key = format!("{}:{}", pattern, case_insensitive);
-                if !self.regex_cache.contains_key(&cache_key) {
-                    let regex = if *case_insensitive {
-                        Regex::new(&format!("(?i){}", regex::escape(pattern)))
-                    } else {
-                        Regex::new(&regex::escape(pattern))
-                    };
-                    if let Ok(re) = regex {
-                        self.regex_cache.insert(cache_key, re);
+                if let std::collections::hash_map::Entry::Vacant(entry) =
+                    self.regex_cache.entry(cache_key)
+                {
+                    // Pattern triggers are regexes by design.
+                    if let Ok(re) = RegexBuilder::new(pattern)
+                        .case_insensitive(*case_insensitive)
+                        .build()
+                    {
+                        entry.insert(re);
                     }
                 }
             }
@@ -102,7 +107,9 @@ impl PolicyEngine {
                     continue;
                 }
 
-                if let Some((triggered, score, metadata)) = self.evaluate_trigger(&rule.trigger, text) {
+                if let Some((triggered, score, metadata)) =
+                    self.evaluate_trigger(&rule.trigger, text)
+                {
                     if triggered {
                         results.push(EvaluationResult {
                             rule_name: rule.name.clone(),
@@ -122,15 +129,26 @@ impl PolicyEngine {
     /// Evaluate tokens against all policies
     pub fn evaluate(&self, tokens: &[Token]) -> Vec<EvaluationResult> {
         // Concatenate token texts for pattern matching
-        let text: String = tokens.iter().map(|t| t.text.as_str()).collect::<Vec<_>>().join("");
+        let text: String = tokens
+            .iter()
+            .map(|t| t.text.as_str())
+            .collect::<Vec<_>>()
+            .join("");
         self.evaluate_text(&text)
     }
 
     /// Evaluate a single trigger against text
     /// Returns (triggered, score, metadata)
-    fn evaluate_trigger(&self, trigger: &Trigger, text: &str) -> Option<(bool, f32, EvaluationMetadata)> {
+    fn evaluate_trigger(
+        &self,
+        trigger: &Trigger,
+        text: &str,
+    ) -> Option<(bool, f32, EvaluationMetadata)> {
         match trigger {
-            Trigger::Pattern { pattern, case_insensitive } => {
+            Trigger::Pattern {
+                pattern,
+                case_insensitive,
+            } => {
                 let cache_key = format!("{}:{}", pattern, case_insensitive);
                 if let Some(regex) = self.regex_cache.get(&cache_key) {
                     if let Some(m) = regex.find(text) {
@@ -166,7 +184,10 @@ impl PolicyEngine {
                 Some((false, 0.0, EvaluationMetadata::default()))
             }
 
-            Trigger::Classifier { classifier, threshold } => {
+            Trigger::Classifier {
+                classifier,
+                threshold,
+            } => {
                 if let Some(&score) = self.classifier_scores.get(classifier) {
                     let triggered = score >= *threshold;
                     Some((
@@ -215,15 +236,17 @@ impl PolicyEngine {
                 };
 
                 // Aggregate scores and metadata
-                let avg_score = sub_results.iter().map(|(_, s, _)| s).sum::<f32>()
-                    / sub_results.len() as f32;
+                let avg_score =
+                    sub_results.iter().map(|(_, s, _)| s).sum::<f32>() / sub_results.len() as f32;
 
                 let mut combined_metadata = EvaluationMetadata::default();
                 for (_, _, meta) in sub_results {
                     if let Some(content) = meta.matched_content {
                         combined_metadata.matched_content = Some(content);
                     }
-                    combined_metadata.classifier_scores.extend(meta.classifier_scores);
+                    combined_metadata
+                        .classifier_scores
+                        .extend(meta.classifier_scores);
                 }
 
                 Some((triggered, avg_score, combined_metadata))
@@ -278,8 +301,8 @@ pub struct EvaluationMetadata {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Rule;
     use crate::action::LogLevel;
+    use crate::Rule;
 
     fn create_test_policy(rules: Vec<Rule>) -> Policy {
         Policy {
@@ -294,22 +317,20 @@ mod tests {
     #[test]
     fn test_pattern_trigger_matches() {
         let mut engine = PolicyEngine::new();
-        engine.add_policy(create_test_policy(vec![
-            Rule {
-                name: "unsafe-content".to_string(),
-                description: "Detect unsafe content".to_string(),
-                trigger: Trigger::Pattern {
-                    pattern: "unsafe".to_string(),
-                    case_insensitive: true,
-                },
-                actions: vec![Action::Log {
-                    message: "Unsafe content detected".to_string(),
-                    level: LogLevel::Warn,
-                }],
-                regulation: None,
-                enabled: true,
-            }
-        ]));
+        engine.add_policy(create_test_policy(vec![Rule {
+            name: "unsafe-content".to_string(),
+            description: "Detect unsafe content".to_string(),
+            trigger: Trigger::Pattern {
+                pattern: "unsafe".to_string(),
+                case_insensitive: true,
+            },
+            actions: vec![Action::Log {
+                message: "Unsafe content detected".to_string(),
+                level: LogLevel::Warn,
+            }],
+            regulation: None,
+            enabled: true,
+        }]));
 
         let results = engine.evaluate_text("This content is unsafe");
         assert_eq!(results.len(), 1);
@@ -320,19 +341,17 @@ mod tests {
     #[test]
     fn test_pattern_trigger_no_match() {
         let mut engine = PolicyEngine::new();
-        engine.add_policy(create_test_policy(vec![
-            Rule {
-                name: "unsafe-content".to_string(),
-                description: "Detect unsafe content".to_string(),
-                trigger: Trigger::Pattern {
-                    pattern: "unsafe".to_string(),
-                    case_insensitive: true,
-                },
-                actions: vec![],
-                regulation: None,
-                enabled: true,
-            }
-        ]));
+        engine.add_policy(create_test_policy(vec![Rule {
+            name: "unsafe-content".to_string(),
+            description: "Detect unsafe content".to_string(),
+            trigger: Trigger::Pattern {
+                pattern: "unsafe".to_string(),
+                case_insensitive: true,
+            },
+            actions: vec![],
+            regulation: None,
+            enabled: true,
+        }]));
 
         let results = engine.evaluate_text("This content is safe");
         assert!(results.is_empty());
@@ -341,19 +360,17 @@ mod tests {
     #[test]
     fn test_pattern_trigger_case_insensitive() {
         let mut engine = PolicyEngine::new();
-        engine.add_policy(create_test_policy(vec![
-            Rule {
-                name: "test".to_string(),
-                description: "Test rule".to_string(),
-                trigger: Trigger::Pattern {
-                    pattern: "UNSAFE".to_string(),
-                    case_insensitive: true,
-                },
-                actions: vec![],
-                regulation: None,
-                enabled: true,
-            }
-        ]));
+        engine.add_policy(create_test_policy(vec![Rule {
+            name: "test".to_string(),
+            description: "Test rule".to_string(),
+            trigger: Trigger::Pattern {
+                pattern: "UNSAFE".to_string(),
+                case_insensitive: true,
+            },
+            actions: vec![],
+            regulation: None,
+            enabled: true,
+        }]));
 
         let results = engine.evaluate_text("This is unsafe content");
         assert_eq!(results.len(), 1);
@@ -362,19 +379,17 @@ mod tests {
     #[test]
     fn test_pattern_trigger_case_sensitive() {
         let mut engine = PolicyEngine::new();
-        engine.add_policy(create_test_policy(vec![
-            Rule {
-                name: "test".to_string(),
-                description: "Test rule".to_string(),
-                trigger: Trigger::Pattern {
-                    pattern: "UNSAFE".to_string(),
-                    case_insensitive: false,
-                },
-                actions: vec![],
-                regulation: None,
-                enabled: true,
-            }
-        ]));
+        engine.add_policy(create_test_policy(vec![Rule {
+            name: "test".to_string(),
+            description: "Test rule".to_string(),
+            trigger: Trigger::Pattern {
+                pattern: "UNSAFE".to_string(),
+                case_insensitive: false,
+            },
+            actions: vec![],
+            regulation: None,
+            enabled: true,
+        }]));
 
         let results = engine.evaluate_text("This is unsafe content");
         assert!(results.is_empty()); // lowercase "unsafe" won't match "UNSAFE"
@@ -383,19 +398,17 @@ mod tests {
     #[test]
     fn test_classifier_trigger_above_threshold() {
         let mut engine = PolicyEngine::new();
-        engine.add_policy(create_test_policy(vec![
-            Rule {
-                name: "toxic-content".to_string(),
-                description: "Detect toxic content".to_string(),
-                trigger: Trigger::Classifier {
-                    classifier: "toxicity".to_string(),
-                    threshold: 0.7,
-                },
-                actions: vec![],
-                regulation: None,
-                enabled: true,
-            }
-        ]));
+        engine.add_policy(create_test_policy(vec![Rule {
+            name: "toxic-content".to_string(),
+            description: "Detect toxic content".to_string(),
+            trigger: Trigger::Classifier {
+                classifier: "toxicity".to_string(),
+                threshold: 0.7,
+            },
+            actions: vec![],
+            regulation: None,
+            enabled: true,
+        }]));
 
         engine.add_classifier_score("toxicity", 0.85);
         let results = engine.evaluate_text("Some text");
@@ -406,19 +419,17 @@ mod tests {
     #[test]
     fn test_classifier_trigger_below_threshold() {
         let mut engine = PolicyEngine::new();
-        engine.add_policy(create_test_policy(vec![
-            Rule {
-                name: "toxic-content".to_string(),
-                description: "Detect toxic content".to_string(),
-                trigger: Trigger::Classifier {
-                    classifier: "toxicity".to_string(),
-                    threshold: 0.7,
-                },
-                actions: vec![],
-                regulation: None,
-                enabled: true,
-            }
-        ]));
+        engine.add_policy(create_test_policy(vec![Rule {
+            name: "toxic-content".to_string(),
+            description: "Detect toxic content".to_string(),
+            trigger: Trigger::Classifier {
+                classifier: "toxicity".to_string(),
+                threshold: 0.7,
+            },
+            actions: vec![],
+            regulation: None,
+            enabled: true,
+        }]));
 
         engine.add_classifier_score("toxicity", 0.5);
         let results = engine.evaluate_text("Some text");
@@ -428,28 +439,26 @@ mod tests {
     #[test]
     fn test_composite_and_both_true() {
         let mut engine = PolicyEngine::new();
-        engine.add_policy(create_test_policy(vec![
-            Rule {
-                name: "both-patterns".to_string(),
-                description: "Match both patterns".to_string(),
-                trigger: Trigger::Composite {
-                    operator: CompositeOperator::And,
-                    triggers: vec![
-                        Box::new(Trigger::Pattern {
-                            pattern: "unsafe".to_string(),
-                            case_insensitive: true,
-                        }),
-                        Box::new(Trigger::Pattern {
-                            pattern: "dangerous".to_string(),
-                            case_insensitive: true,
-                        }),
-                    ],
-                },
-                actions: vec![],
-                regulation: None,
-                enabled: true,
-            }
-        ]));
+        engine.add_policy(create_test_policy(vec![Rule {
+            name: "both-patterns".to_string(),
+            description: "Match both patterns".to_string(),
+            trigger: Trigger::Composite {
+                operator: CompositeOperator::And,
+                triggers: vec![
+                    Box::new(Trigger::Pattern {
+                        pattern: "unsafe".to_string(),
+                        case_insensitive: true,
+                    }),
+                    Box::new(Trigger::Pattern {
+                        pattern: "dangerous".to_string(),
+                        case_insensitive: true,
+                    }),
+                ],
+            },
+            actions: vec![],
+            regulation: None,
+            enabled: true,
+        }]));
 
         let results = engine.evaluate_text("This is unsafe and dangerous content");
         assert_eq!(results.len(), 1);
@@ -458,28 +467,26 @@ mod tests {
     #[test]
     fn test_composite_and_one_false() {
         let mut engine = PolicyEngine::new();
-        engine.add_policy(create_test_policy(vec![
-            Rule {
-                name: "both-patterns".to_string(),
-                description: "Match both patterns".to_string(),
-                trigger: Trigger::Composite {
-                    operator: CompositeOperator::And,
-                    triggers: vec![
-                        Box::new(Trigger::Pattern {
-                            pattern: "unsafe".to_string(),
-                            case_insensitive: true,
-                        }),
-                        Box::new(Trigger::Pattern {
-                            pattern: "dangerous".to_string(),
-                            case_insensitive: true,
-                        }),
-                    ],
-                },
-                actions: vec![],
-                regulation: None,
-                enabled: true,
-            }
-        ]));
+        engine.add_policy(create_test_policy(vec![Rule {
+            name: "both-patterns".to_string(),
+            description: "Match both patterns".to_string(),
+            trigger: Trigger::Composite {
+                operator: CompositeOperator::And,
+                triggers: vec![
+                    Box::new(Trigger::Pattern {
+                        pattern: "unsafe".to_string(),
+                        case_insensitive: true,
+                    }),
+                    Box::new(Trigger::Pattern {
+                        pattern: "dangerous".to_string(),
+                        case_insensitive: true,
+                    }),
+                ],
+            },
+            actions: vec![],
+            regulation: None,
+            enabled: true,
+        }]));
 
         let results = engine.evaluate_text("This is unsafe but safe content");
         assert!(results.is_empty());
@@ -488,28 +495,26 @@ mod tests {
     #[test]
     fn test_composite_or_one_true() {
         let mut engine = PolicyEngine::new();
-        engine.add_policy(create_test_policy(vec![
-            Rule {
-                name: "either-pattern".to_string(),
-                description: "Match either pattern".to_string(),
-                trigger: Trigger::Composite {
-                    operator: CompositeOperator::Or,
-                    triggers: vec![
-                        Box::new(Trigger::Pattern {
-                            pattern: "unsafe".to_string(),
-                            case_insensitive: true,
-                        }),
-                        Box::new(Trigger::Pattern {
-                            pattern: "dangerous".to_string(),
-                            case_insensitive: true,
-                        }),
-                    ],
-                },
-                actions: vec![],
-                regulation: None,
-                enabled: true,
-            }
-        ]));
+        engine.add_policy(create_test_policy(vec![Rule {
+            name: "either-pattern".to_string(),
+            description: "Match either pattern".to_string(),
+            trigger: Trigger::Composite {
+                operator: CompositeOperator::Or,
+                triggers: vec![
+                    Box::new(Trigger::Pattern {
+                        pattern: "unsafe".to_string(),
+                        case_insensitive: true,
+                    }),
+                    Box::new(Trigger::Pattern {
+                        pattern: "dangerous".to_string(),
+                        case_insensitive: true,
+                    }),
+                ],
+            },
+            actions: vec![],
+            regulation: None,
+            enabled: true,
+        }]));
 
         let results = engine.evaluate_text("This is unsafe content");
         assert_eq!(results.len(), 1);
@@ -518,19 +523,17 @@ mod tests {
     #[test]
     fn test_disabled_rule_skipped() {
         let mut engine = PolicyEngine::new();
-        engine.add_policy(create_test_policy(vec![
-            Rule {
-                name: "disabled".to_string(),
-                description: "Disabled rule".to_string(),
-                trigger: Trigger::Pattern {
-                    pattern: "unsafe".to_string(),
-                    case_insensitive: true,
-                },
-                actions: vec![],
-                regulation: None,
-                enabled: false,
-            }
-        ]));
+        engine.add_policy(create_test_policy(vec![Rule {
+            name: "disabled".to_string(),
+            description: "Disabled rule".to_string(),
+            trigger: Trigger::Pattern {
+                pattern: "unsafe".to_string(),
+                case_insensitive: true,
+            },
+            actions: vec![],
+            regulation: None,
+            enabled: false,
+        }]));
 
         let results = engine.evaluate_text("This is unsafe content");
         assert!(results.is_empty());
@@ -561,7 +564,7 @@ mod tests {
                 actions: vec![],
                 regulation: None,
                 enabled: true,
-            }
+            },
         ]));
 
         let results = engine.evaluate_text("This is unsafe and dangerous content");
@@ -571,28 +574,26 @@ mod tests {
     #[test]
     fn test_actions_returned_in_result() {
         let mut engine = PolicyEngine::new();
-        engine.add_policy(create_test_policy(vec![
-            Rule {
-                name: "test".to_string(),
-                description: "Test rule with actions".to_string(),
-                trigger: Trigger::Pattern {
-                    pattern: "unsafe".to_string(),
-                    case_insensitive: true,
+        engine.add_policy(create_test_policy(vec![Rule {
+            name: "test".to_string(),
+            description: "Test rule with actions".to_string(),
+            trigger: Trigger::Pattern {
+                pattern: "unsafe".to_string(),
+                case_insensitive: true,
+            },
+            actions: vec![
+                Action::Log {
+                    message: "Unsafe detected".to_string(),
+                    level: LogLevel::Warn,
                 },
-                actions: vec![
-                    Action::Log {
-                        message: "Unsafe detected".to_string(),
-                        level: LogLevel::Warn,
-                    },
-                    Action::Stop {
-                        message: Some("Blocked".to_string()),
-                        status_code: 403,
-                    },
-                ],
-                regulation: None,
-                enabled: true,
-            }
-        ]));
+                Action::Stop {
+                    message: Some("Blocked".to_string()),
+                    status_code: 403,
+                },
+            ],
+            regulation: None,
+            enabled: true,
+        }]));
 
         let results = engine.evaluate_text("unsafe content");
         assert_eq!(results.len(), 1);
@@ -602,42 +603,41 @@ mod tests {
     #[test]
     fn test_matched_content_in_metadata() {
         let mut engine = PolicyEngine::new();
-        engine.add_policy(create_test_policy(vec![
-            Rule {
-                name: "test".to_string(),
-                description: "Test rule".to_string(),
-                trigger: Trigger::Pattern {
-                    pattern: "unsafe".to_string(),
-                    case_insensitive: false,
-                },
-                actions: vec![],
-                regulation: None,
-                enabled: true,
-            }
-        ]));
+        engine.add_policy(create_test_policy(vec![Rule {
+            name: "test".to_string(),
+            description: "Test rule".to_string(),
+            trigger: Trigger::Pattern {
+                pattern: "unsafe".to_string(),
+                case_insensitive: false,
+            },
+            actions: vec![],
+            regulation: None,
+            enabled: true,
+        }]));
 
         let results = engine.evaluate_text("This is unsafe content");
         assert_eq!(results.len(), 1);
         assert!(results[0].metadata.matched_content.is_some());
-        assert_eq!(results[0].metadata.matched_content.as_ref().unwrap(), "unsafe");
+        assert_eq!(
+            results[0].metadata.matched_content.as_ref().unwrap(),
+            "unsafe"
+        );
     }
 
     #[test]
     fn test_evaluate_with_tokens() {
         let mut engine = PolicyEngine::new();
-        engine.add_policy(create_test_policy(vec![
-            Rule {
-                name: "test".to_string(),
-                description: "Test rule".to_string(),
-                trigger: Trigger::Pattern {
-                    pattern: "unsafe".to_string(),
-                    case_insensitive: true,
-                },
-                actions: vec![],
-                regulation: None,
-                enabled: true,
-            }
-        ]));
+        engine.add_policy(create_test_policy(vec![Rule {
+            name: "test".to_string(),
+            description: "Test rule".to_string(),
+            trigger: Trigger::Pattern {
+                pattern: "unsafe".to_string(),
+                case_insensitive: true,
+            },
+            actions: vec![],
+            regulation: None,
+            enabled: true,
+        }]));
 
         let tokens = vec![
             Token::new("This "),

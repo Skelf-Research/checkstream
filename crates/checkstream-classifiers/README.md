@@ -1,6 +1,6 @@
 # checkstream-classifiers
 
-ML and pattern-based classifiers for toxicity, PII, and prompt injection detection.
+Classifier and pipeline components for toxicity, PII, prompt injection, and sentiment detection.
 
 [![Crates.io](https://img.shields.io/crates/v/checkstream-classifiers.svg)](https://crates.io/crates/checkstream-classifiers)
 [![Documentation](https://docs.rs/checkstream-classifiers/badge.svg)](https://docs.rs/checkstream-classifiers)
@@ -8,17 +8,17 @@ ML and pattern-based classifiers for toxicity, PII, and prompt injection detecti
 
 ## Overview
 
-`checkstream-classifiers` provides high-performance content classification for LLM guardrails. It includes both ML-based classifiers (using Candle for Rust-native inference) and pattern-based classifiers for real-time content analysis.
+`checkstream-classifiers` provides high-performance content classification for LLM guardrails. It includes built-in dependency-light classifiers and registry-driven sequence classifiers for deterministic real-time content analysis.
 
 ## Features
 
-- **ML Classifiers** - DistilBERT, BERT models via HuggingFace
+- **Registry-Driven Sequence Classifiers** - Configurable BERT/DistilBERT/RoBERTa/XLM-R/MiniLM/DeBERTa interfaces
 - **Pattern Classifiers** - Regex and Aho-Corasick based detection
 - **PII Detection** - SSN, credit cards, emails, phone numbers
 - **Toxicity Detection** - Multi-label toxicity classification
 - **Prompt Injection** - Detect and block injection attempts
 - **Sub-millisecond Patterns** - ~0.5ms for pattern classifiers
-- **GPU Acceleration** - Optional CUDA support for ML models
+- **Deterministic Runtime** - No heavyweight runtime ML dependencies required
 
 ## Installation
 
@@ -26,11 +26,14 @@ ML and pattern-based classifiers for toxicity, PII, and prompt injection detecti
 [dependencies]
 checkstream-classifiers = "0.1"
 
-# With ML model support (default)
+# Enable extended model-registry paths
 checkstream-classifiers = { version = "0.1", features = ["ml-models"] }
 
-# Without ML models (patterns only)
+# Hardened default profile
 checkstream-classifiers = { version = "0.1", default-features = false }
+
+# Optional: true external model inference backend
+checkstream-classifiers-ml-plugin = { path = "../../plugins/checkstream-classifiers-ml-plugin" }
 ```
 
 ## Usage
@@ -55,7 +58,7 @@ let result = classifier.classify("My SSN is 123-45-6789").await?;
 println!("Detected: {} (score: {})", result.label, result.score);
 ```
 
-### ML Classifier
+### Sequence Classifier
 
 ```rust
 use checkstream_classifiers::{GenericModelLoader, ModelRegistry};
@@ -83,6 +86,22 @@ let classifier = loader.load_classifier("sentiment").await?;
 
 let result = classifier.classify("I love this product!").await?;
 println!("{}: {} ({:.2})", result.label, result.score, result.latency_us);
+```
+
+### External ML Plugin (True Inference)
+
+```rust
+use checkstream_classifiers::dynamic_registry::DynamicRegistryBuilder;
+use checkstream_classifiers_ml_plugin::ExternalMlModelLoader;
+use std::sync::Arc;
+
+let loader = ExternalMlModelLoader::from_file("models/registry.yaml")?;
+
+let registry = DynamicRegistryBuilder::new()
+    .with_loader(Arc::new(loader))
+    .preload("sentiment")
+    .build()
+    .await?;
 ```
 
 ### Classifier Pipeline
@@ -117,13 +136,13 @@ for result in results {
 | `pii-phone` | Phone numbers |
 | `prompt-injection` | Common injection patterns |
 
-### ML-Based (Tier B: <50ms CPU, <10ms GPU)
+### Sequence Classifiers (Tier B)
 
 | Model | Description |
 |-------|-------------|
-| `toxicity` | Multi-label toxicity (toxic-bert) |
+| `toxicity` | Multi-label toxicity (lexicon-based) |
 | `sentiment` | Positive/negative sentiment |
-| `custom` | Any HuggingFace sequence classifier |
+| `custom` | Custom registry-driven sequence classifier |
 
 ## Configuration
 
@@ -159,8 +178,7 @@ models:
 |-----------------|---------|
 | Pattern (regex) | ~0.5ms |
 | Pattern (Aho-Corasick) | ~0.2ms |
-| ML (CPU) | 30-50ms |
-| ML (GPU) | 2-10ms |
+| Sequence (Tier B) | ~0.5-2ms |
 
 ## Documentation
 

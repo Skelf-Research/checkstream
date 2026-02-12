@@ -2,11 +2,11 @@
 //!
 //! Pluggable adapters for parsing various streaming formats from LLM backends.
 
-mod openai;
 pub mod configurable;
+mod openai;
 
+pub use configurable::{anthropic_adapter, AdapterConfig, ConfigurableAdapter};
 pub use openai::OpenAiAdapter;
-pub use configurable::{ConfigurableAdapter, AdapterConfig, anthropic_adapter};
 
 use crate::stream_adapter::{AdapterRegistry, StreamAdapter};
 

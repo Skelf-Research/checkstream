@@ -9,7 +9,6 @@ use anyhow::Result;
 use clap::Parser;
 use metrics_exporter_prometheus::PrometheusHandle;
 use std::net::SocketAddr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::signal;
 use tracing::{info, warn};
@@ -19,8 +18,8 @@ mod proxy;
 mod routes;
 mod tenant;
 
-use config::ProxyConfig;
-pub use tenant::{TenantRuntime, TenantResolver};
+use config::MultiTenantConfig;
+pub use tenant::{TenantResolver, TenantRuntime};
 
 /// Global shutdown flag
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
@@ -70,18 +69,19 @@ async fn main() -> Result<()> {
     info!("Built with Rust for maximum performance");
 
     // Load configuration
-    let config = ProxyConfig::load(&cli.config, &cli)?;
+    let config = MultiTenantConfig::load(&cli.config, &cli)?;
     info!("Configuration loaded successfully");
-    info!("Backend: {}", config.backend_url);
-    info!("Policy: {}", config.policy_path);
-    info!("Classifiers: {}", config.classifiers_config);
+    info!("Backend: {}", config.default.backend_url);
+    info!("Policy: {}", config.default.policy_path);
+    info!("Classifiers: {}", config.default.classifiers_config);
+    info!("Configured tenants: {}", config.tenants.len());
 
     // Initialize metrics
     let metrics_handle = init_metrics()?;
 
     // Initialize application state (load classifiers and build pipelines)
     info!("Initializing application state...");
-    let state = proxy::AppState::new(config, metrics_handle).await?;
+    let state = proxy::AppState::new_multi_tenant(config, metrics_handle).await?;
     info!("Application state initialized successfully");
 
     // Create proxy server
@@ -141,8 +141,7 @@ fn init_tracing(verbose: bool) {
     let filter = if verbose {
         EnvFilter::new("checkstream=debug,tower_http=debug")
     } else {
-        EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new("checkstream=info"))
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("checkstream=info"))
     };
 
     tracing_subscriber::registry()
@@ -174,10 +173,7 @@ fn init_metrics() -> Result<PrometheusHandle> {
         metrics::Unit::Microseconds,
         "Pipeline execution latency in microseconds by phase"
     );
-    metrics::describe_counter!(
-        "checkstream_errors_total",
-        "Total number of errors by type"
-    );
+    metrics::describe_counter!("checkstream_errors_total", "Total number of errors by type");
 
     info!("Metrics exporter initialized");
     Ok(handle)

@@ -118,6 +118,7 @@ pipelines:
         classifiers:
           - toxicity
           - sentiment
+          - pii
         aggregation: max_score  # Use highest score from either classifier
 
   # Advanced safety: sequential checks with conditional execution
@@ -165,6 +166,7 @@ pipelines:
           - toxicity
           - sentiment
           - prompt-injection
+          - pii
         aggregation: unanimous  # All must agree for positive result
 
   # Fast triage: find first issue
@@ -176,6 +178,7 @@ pipelines:
         classifiers:
           - toxicity-distilled
           - prompt-injection
+          - pii
         aggregation:
           first_positive:
             threshold: 0.7

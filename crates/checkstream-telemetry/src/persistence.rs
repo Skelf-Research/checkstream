@@ -11,9 +11,8 @@ use serde::{Deserialize, Serialize};
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 /// Configuration for audit persistence
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -154,7 +153,9 @@ fn rand_u32() -> u32 {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
-    (now.as_nanos() as u32).wrapping_mul(1103515245).wrapping_add(12345)
+    (now.as_nanos() as u32)
+        .wrapping_mul(1103515245)
+        .wrapping_add(12345)
 }
 
 /// Audit file writer with rotation support
@@ -165,6 +166,7 @@ pub struct AuditWriter {
     current_size: u64,
     current_start: SystemTime,
     events_since_flush: usize,
+    trail: AuditTrail,
 }
 
 impl AuditWriter {
@@ -180,6 +182,7 @@ impl AuditWriter {
             current_size: 0,
             current_start: SystemTime::now(),
             events_since_flush: 0,
+            trail: AuditTrail::new(),
         };
 
         writer.open_new_file()?;
@@ -193,8 +196,12 @@ impl AuditWriter {
             self.rotate()?;
         }
 
+        // Hash-chain each event before writing it to disk.
+        let mut event = event.clone();
+        event.event = self.trail.chain_event(event.event);
+
         // Serialize event to JSON line
-        let json = serde_json::to_string(event)?;
+        let json = serde_json::to_string(&event)?;
         let line = format!("{}\n", json);
         let bytes = line.as_bytes();
 
@@ -255,10 +262,7 @@ impl AuditWriter {
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs();
-            let rotated_name = format!(
-                "audit_{}.jsonl",
-                timestamp
-            );
+            let rotated_name = format!("audit_{}.jsonl", timestamp);
             let rotated_path = self.config.audit_dir.join(&rotated_name);
 
             if let Err(e) = std::fs::rename(current_path, &rotated_path) {
@@ -283,10 +287,7 @@ impl AuditWriter {
     fn open_new_file(&mut self) -> std::io::Result<()> {
         let path = self.config.audit_dir.join("audit_current.jsonl");
 
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)?;
+        let file = OpenOptions::new().create(true).append(true).open(&path)?;
 
         let metadata = file.metadata()?;
         self.current_size = metadata.len();
@@ -308,7 +309,7 @@ impl AuditWriter {
             let path = entry.path();
 
             // Skip current file
-            if path.file_name().map_or(false, |n| n == "audit_current.jsonl") {
+            if path.file_name().is_some_and(|n| n == "audit_current.jsonl") {
                 continue;
             }
 
@@ -435,7 +436,7 @@ impl AuditReader {
         for entry in std::fs::read_dir(&self.config.audit_dir)? {
             let entry = entry?;
             let path = entry.path();
-            if path.extension().map_or(false, |e| e == "jsonl") {
+            if path.extension().is_some_and(|e| e == "jsonl") {
                 files_to_read.push(path);
             }
         }
@@ -544,7 +545,7 @@ impl AuditReader {
         for entry in std::fs::read_dir(&self.config.audit_dir)? {
             let entry = entry?;
             let path = entry.path();
-            if path.extension().map_or(false, |e| e == "jsonl") {
+            if path.extension().is_some_and(|e| e == "jsonl") {
                 let file = File::open(&path)?;
                 let reader = BufReader::new(file);
 
@@ -591,10 +592,15 @@ impl AuditReader {
             }
             ExportFormat::Csv => {
                 // Write CSV header
-                writeln!(file, "id,request_id,event_type,severity,regulation,timestamp,phase,data")?;
+                writeln!(
+                    file,
+                    "id,request_id,event_type,severity,regulation,timestamp,phase,data"
+                )?;
 
                 for event in &events {
-                    let timestamp = event.event.timestamp
+                    let timestamp = event
+                        .event
+                        .timestamp
                         .duration_since(UNIX_EPOCH)
                         .map(|d| d.as_secs())
                         .unwrap_or(0);
@@ -673,14 +679,14 @@ mod tests {
             let mut writer = AuditWriter::new(config.clone()).unwrap();
 
             let event1 = PersistedAuditEvent::new(
-                AuditEvent::new("policy_triggered")
-                    .with_severity(AuditSeverity::High)
-            ).with_request_id("req-001");
+                AuditEvent::new("policy_triggered").with_severity(AuditSeverity::High),
+            )
+            .with_request_id("req-001");
 
             let event2 = PersistedAuditEvent::new(
-                AuditEvent::new("action_taken")
-                    .with_severity(AuditSeverity::Info)
-            ).with_request_id("req-001");
+                AuditEvent::new("action_taken").with_severity(AuditSeverity::Info),
+            )
+            .with_request_id("req-001");
 
             writer.write_event(&event1).unwrap();
             writer.write_event(&event2).unwrap();
@@ -713,9 +719,9 @@ mod tests {
                 };
 
                 let event = PersistedAuditEvent::new(
-                    AuditEvent::new(format!("event_{}", i))
-                        .with_severity(severity)
-                ).with_request_id(format!("req-{}", i % 3));
+                    AuditEvent::new(format!("event_{}", i)).with_severity(severity),
+                )
+                .with_request_id(format!("req-{}", i % 3));
 
                 writer.write_event(&event).unwrap();
             }
@@ -725,26 +731,22 @@ mod tests {
         let reader = AuditReader::new(config);
 
         // Query high severity only
-        let high_events = reader.query(
-            &AuditQuery::new().min_severity(AuditSeverity::High)
-        ).unwrap();
+        let high_events = reader
+            .query(&AuditQuery::new().min_severity(AuditSeverity::High))
+            .unwrap();
         assert_eq!(high_events.len(), 5);
 
         // Query by request ID
-        let req0_events = reader.query(
-            &AuditQuery::new().request_id("req-0")
-        ).unwrap();
+        let req0_events = reader
+            .query(&AuditQuery::new().request_id("req-0"))
+            .unwrap();
         assert_eq!(req0_events.len(), 4); // 0, 3, 6, 9
 
         // Query with pagination
-        let page1 = reader.query(
-            &AuditQuery::new().paginate(3, 0)
-        ).unwrap();
+        let page1 = reader.query(&AuditQuery::new().paginate(3, 0)).unwrap();
         assert_eq!(page1.len(), 3);
 
-        let page2 = reader.query(
-            &AuditQuery::new().paginate(3, 3)
-        ).unwrap();
+        let page2 = reader.query(&AuditQuery::new().paginate(3, 3)).unwrap();
         assert_eq!(page2.len(), 3);
     }
 
@@ -758,9 +760,9 @@ mod tests {
             let mut writer = AuditWriter::new(config.clone()).unwrap();
 
             let event = PersistedAuditEvent::new(
-                AuditEvent::new("test_event")
-                    .with_regulation("FCA COBS 9A")
-            ).with_request_id("req-export");
+                AuditEvent::new("test_event").with_regulation("FCA COBS 9A"),
+            )
+            .with_request_id("req-export");
 
             writer.write_event(&event).unwrap();
             writer.flush().unwrap();
@@ -769,11 +771,9 @@ mod tests {
         // Export to CSV
         let reader = AuditReader::new(config);
         let export_path = temp_dir.path().join("export.csv");
-        let count = reader.export_to_file(
-            &AuditQuery::new(),
-            &export_path,
-            ExportFormat::Csv
-        ).unwrap();
+        let count = reader
+            .export_to_file(&AuditQuery::new(), &export_path, ExportFormat::Csv)
+            .unwrap();
 
         assert_eq!(count, 1);
         assert!(export_path.exists());

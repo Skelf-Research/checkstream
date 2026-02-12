@@ -15,15 +15,17 @@ pub mod rule;
 pub mod trigger;
 
 pub use action::{Action, ActionType};
-pub use engine::{PolicyEngine, EvaluationResult, EvaluationMetadata};
-pub use executor::{ActionExecutor, ActionOutcome, AuditRecord, TextModification, apply_modifications};
+pub use engine::{EvaluationMetadata, EvaluationResult, PolicyEngine};
+pub use executor::{
+    apply_modifications, ActionExecutor, ActionOutcome, AuditRecord, TextModification,
+};
 pub use rule::{Policy, Rule};
 pub use trigger::{Trigger, TriggerType};
 
 /// Prelude for convenient imports
 pub mod prelude {
     pub use crate::action::{Action, ActionType};
-    pub use crate::engine::{PolicyEngine, EvaluationResult, EvaluationMetadata};
+    pub use crate::engine::{EvaluationMetadata, EvaluationResult, PolicyEngine};
     pub use crate::executor::{ActionExecutor, ActionOutcome};
     pub use crate::rule::{Policy, Rule};
     pub use crate::trigger::{Trigger, TriggerType};

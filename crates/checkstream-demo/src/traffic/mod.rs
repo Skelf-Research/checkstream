@@ -1,7 +1,7 @@
+pub mod controller;
 pub mod generator;
 pub mod templates;
-pub mod controller;
 
+pub use controller::*;
 pub use generator::*;
 pub use templates::*;
-pub use controller::*;

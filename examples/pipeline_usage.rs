@@ -7,7 +7,7 @@
 //! 4. Analyze results and timing
 
 use checkstream_classifiers::{
-    build_pipeline_from_config, load_config, Classifier, ClassificationResult, ClassifierTier,
+    build_pipeline_from_config, load_config, ClassificationResult, Classifier, ClassifierTier,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -43,18 +43,13 @@ impl Classifier for DemoClassifier {
 
         // Simulate processing time based on tier
         let latency_us = match self.tier {
-            ClassifierTier::A => 1500,  // <2ms
-            ClassifierTier::B => 4000,  // <5ms
-            ClassifierTier::C => 8000,  // <10ms
+            ClassifierTier::A => 1500, // <2ms
+            ClassifierTier::B => 4000, // <5ms
+            ClassifierTier::C => 8000, // <10ms
         };
 
         Ok(ClassificationResult {
-            label: if score >= 0.5 {
-                "positive"
-            } else {
-                "negative"
-            }
-            .to_string(),
+            label: if score >= 0.5 { "positive" } else { "negative" }.to_string(),
             score,
             metadata: Default::default(),
             latency_us,
@@ -122,18 +117,11 @@ async fn main() -> checkstream_core::Result<()> {
     let config = load_config("./classifiers.yaml")?;
     println!("✓ Loaded configuration");
     println!("  - Models: {:?}", config.model_names());
-    println!(
-        "  - Pipelines: {:?}\n",
-        config.pipeline_names()
-    );
+    println!("  - Pipelines: {:?}\n", config.pipeline_names());
 
     // Step 3: Build and test different pipelines
     let test_cases = vec![
-        (
-            "basic-safety",
-            "This is a normal message",
-            "Clean input",
-        ),
+        ("basic-safety", "This is a normal message", "Clean input"),
         (
             "basic-safety",
             "This is a toxic message that should be flagged",
@@ -144,11 +132,7 @@ async fn main() -> checkstream_core::Result<()> {
             "This looks suspicious",
             "Suspicious content",
         ),
-        (
-            "fast-triage",
-            "Another toxic message",
-            "Fast detection",
-        ),
+        ("fast-triage", "Another toxic message", "Fast detection"),
     ];
 
     for (pipeline_name, text, description) in test_cases {
@@ -158,14 +142,9 @@ async fn main() -> checkstream_core::Result<()> {
         println!("💡 Scenario: {}", description);
 
         // Get pipeline configuration
-        let pipeline_spec = config
-            .get_pipeline(pipeline_name)
-            .ok_or_else(|| {
-                checkstream_core::Error::config(format!(
-                    "Pipeline '{}' not found",
-                    pipeline_name
-                ))
-            })?;
+        let pipeline_spec = config.get_pipeline(pipeline_name).ok_or_else(|| {
+            checkstream_core::Error::config(format!("Pipeline '{}' not found", pipeline_name))
+        })?;
 
         // Build pipeline from configuration
         let pipeline = build_pipeline_from_config(pipeline_spec, &classifiers)?;
@@ -175,7 +154,11 @@ async fn main() -> checkstream_core::Result<()> {
 
         // Display results
         println!("\n📊 Results:");
-        println!("  Total latency: {}μs ({:.2}ms)", result.total_latency_us, result.total_latency_us as f64 / 1000.0);
+        println!(
+            "  Total latency: {}μs ({:.2}ms)",
+            result.total_latency_us,
+            result.total_latency_us as f64 / 1000.0
+        );
         println!("  Stages executed: {}", result.results.len());
 
         for stage_result in &result.results {

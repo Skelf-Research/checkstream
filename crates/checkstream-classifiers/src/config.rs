@@ -44,10 +44,7 @@ pub struct PipelineConfigSpec {
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum StageConfigSpec {
     /// Single classifier execution
-    Single {
-        name: String,
-        classifier: String,
-    },
+    Single { name: String, classifier: String },
 
     /// Parallel execution
     Parallel {
@@ -99,6 +96,8 @@ pub enum ConditionSpec {
     Always,
 }
 
+pub type StageCondition = dyn Fn(&[crate::pipeline::PipelineResult]) -> bool + Send + Sync;
+
 /// Model configuration specification (for YAML/config files)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelConfigSpec {
@@ -128,9 +127,7 @@ pub struct ModelConfigSpec {
 #[serde(untagged)]
 pub enum ModelSourceSpec {
     /// Local file path
-    Local {
-        path: PathBuf,
-    },
+    Local { path: PathBuf },
 
     /// Hugging Face Hub
     HuggingFace {
@@ -143,30 +140,26 @@ pub enum ModelSourceSpec {
 /// Device specification (for config files)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum DeviceSpec {
+    #[default]
     Cpu,
-    Cuda { index: Option<usize> },
-    Metal { index: Option<usize> },
-}
-
-impl Default for DeviceSpec {
-    fn default() -> Self {
-        Self::Cpu
-    }
+    Cuda {
+        index: Option<usize>,
+    },
+    Metal {
+        index: Option<usize>,
+    },
 }
 
 /// Model format specification
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum ModelFormatSpec {
+    #[default]
     SafeTensors,
     PyTorch,
-}
-
-impl Default for ModelFormatSpec {
-    fn default() -> Self {
-        Self::SafeTensors
-    }
 }
 
 impl Default for ClassifierConfig {
@@ -188,7 +181,9 @@ impl ClassifierConfig {
     }
 
     /// Load from file
-    pub fn from_file(path: impl AsRef<std::path::Path>) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn from_file(
+        path: impl AsRef<std::path::Path>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let content = std::fs::read_to_string(path)?;
         Ok(Self::from_yaml(&content)?)
     }
@@ -268,13 +263,11 @@ impl AggregationStrategySpec {
 
 impl ConditionSpec {
     /// Convert to runtime condition function
-    pub fn to_condition_fn(&self) -> Box<dyn Fn(&[crate::pipeline::PipelineResult]) -> bool + Send + Sync> {
+    pub fn to_condition_fn(&self) -> Box<StageCondition> {
         match self {
             Self::AnyAboveThreshold { threshold } => {
                 let threshold = *threshold;
-                Box::new(move |results| {
-                    results.iter().any(|r| r.result.score > threshold)
-                })
+                Box::new(move |results| results.iter().any(|r| r.result.score > threshold))
             }
             Self::AllAboveThreshold { threshold } => {
                 let threshold = *threshold;
@@ -285,12 +278,12 @@ impl ConditionSpec {
             Self::ClassifierTriggered { classifier } => {
                 let classifier_name = classifier.clone();
                 Box::new(move |results| {
-                    results.iter().any(|r| r.classifier_name == classifier_name && r.result.score > 0.5)
+                    results
+                        .iter()
+                        .any(|r| r.classifier_name == classifier_name && r.result.score > 0.5)
                 })
             }
-            Self::Always => {
-                Box::new(|_| true)
-            }
+            Self::Always => Box::new(|_| true),
         }
     }
 }
@@ -358,7 +351,10 @@ models:
         let config = ClassifierConfig::from_yaml(yaml).unwrap();
         let model_config = config.to_model_config("test").unwrap();
 
-        assert!(matches!(model_config.source, ModelSource::HuggingFace { .. }));
+        assert!(matches!(
+            model_config.source,
+            ModelSource::HuggingFace { .. }
+        ));
         assert!(model_config.quantize);
     }
 

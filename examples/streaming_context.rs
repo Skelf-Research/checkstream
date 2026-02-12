@@ -4,8 +4,7 @@
 //! context window configurations to see previous chunks.
 
 use checkstream_classifiers::{
-    Classifier, ClassificationResult, ClassifierTier, StreamingClassifier, StreamingConfig,
-    StreamingPipeline,
+    ClassificationResult, Classifier, ClassifierTier, StreamingClassifier, StreamingConfig,
 };
 use std::sync::Arc;
 
@@ -55,7 +54,7 @@ async fn main() -> checkstream_core::Result<()> {
     println!("🔄 Streaming Classification with Context Windows\n");
     println!("═══════════════════════════════════════════════════════\n");
 
-    let chunks = vec![
+    let chunks = [
         "Hello,",
         "I'm interested",
         "in investing",
@@ -84,7 +83,10 @@ async fn main() -> checkstream_core::Result<()> {
     for (i, chunk) in chunks.iter().enumerate() {
         println!("Processing chunk {}: \"{}\"", i + 1, chunk);
         let result = streaming.classify_chunk(chunk.to_string()).await?;
-        println!("  → Result: {} (score: {:.2})\n", result.label, result.score);
+        println!(
+            "  → Result: {} (score: {:.2})\n",
+            result.label, result.score
+        );
     }
 
     // Example 2: Last 3 chunks
@@ -101,7 +103,10 @@ async fn main() -> checkstream_core::Result<()> {
     for (i, chunk) in chunks.iter().enumerate() {
         println!("Processing chunk {}: \"{}\"", i + 1, chunk);
         let result = streaming.classify_chunk(chunk.to_string()).await?;
-        println!("  → Result: {} (score: {:.2})\n", result.label, result.score);
+        println!(
+            "  → Result: {} (score: {:.2})\n",
+            result.label, result.score
+        );
     }
 
     // Example 3: Entire buffer
@@ -118,7 +123,10 @@ async fn main() -> checkstream_core::Result<()> {
     for (i, chunk) in chunks.iter().enumerate() {
         println!("Processing chunk {}: \"{}\"", i + 1, chunk);
         let result = streaming.classify_chunk(chunk.to_string()).await?;
-        println!("  → Result: {} (score: {:.2})\n", result.label, result.score);
+        println!(
+            "  → Result: {} (score: {:.2})\n",
+            result.label, result.score
+        );
     }
 
     // Example 4: Comparison showing why context matters
@@ -126,7 +134,7 @@ async fn main() -> checkstream_core::Result<()> {
     println!("Example 4: WHY CONTEXT MATTERS");
     println!("═══════════════════════════════════════════════════════\n");
 
-    let problematic_chunks = vec![
+    let problematic_chunks = [
         "That sounds",
         "like a",
         "great investment!",
@@ -155,7 +163,11 @@ async fn main() -> checkstream_core::Result<()> {
             "  Chunk {}: \"{}\" → {}",
             i + 1,
             chunk,
-            if result.score > 0.3 { "⚠️ FLAG" } else { "✓ OK" }
+            if result.score > 0.3 {
+                "⚠️ FLAG"
+            } else {
+                "✓ OK"
+            }
         );
     }
     println!();
@@ -173,7 +185,11 @@ async fn main() -> checkstream_core::Result<()> {
             "  Chunk {}: \"{}\" → {}",
             i + 1,
             chunk,
-            if result.score > 0.5 { "⚠️ FLAG" } else { "✓ OK" }
+            if result.score > 0.5 {
+                "⚠️ FLAG"
+            } else {
+                "✓ OK"
+            }
         );
     }
     println!();

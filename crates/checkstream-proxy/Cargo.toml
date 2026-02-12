@@ -62,10 +62,6 @@ clap = { workspace = true }
 # Utilities
 uuid = { workspace = true }
 
-# TLS
-rustls = { workspace = true }
-rustls-pemfile = { workspace = true }
-
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }
 criterion = { workspace = true }

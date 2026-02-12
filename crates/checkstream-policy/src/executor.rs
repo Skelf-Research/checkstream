@@ -8,13 +8,13 @@
 //! - Adapting generation parameters
 //! - Audit trail recording
 
-use crate::action::{Action, LogLevel, InjectPosition, AuditSeverity};
+use crate::action::{Action, AuditSeverity, InjectPosition, LogLevel};
 use crate::engine::EvaluationResult;
 use std::time::SystemTime;
-use tracing::{debug, info, warn, error};
+use tracing::{debug, error, info, warn};
 
 /// Outcome of executing actions
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ActionOutcome {
     /// Whether to stop the stream
     pub should_stop: bool,
@@ -33,19 +33,6 @@ pub struct ActionOutcome {
 
     /// Parameter adaptations for generation
     pub adaptations: Vec<ParameterAdaptation>,
-}
-
-impl Default for ActionOutcome {
-    fn default() -> Self {
-        Self {
-            should_stop: false,
-            stop_message: None,
-            stop_status: None,
-            modifications: Vec::new(),
-            audit_records: Vec::new(),
-            adaptations: Vec::new(),
-        }
-    }
 }
 
 impl ActionOutcome {
@@ -152,9 +139,7 @@ impl Default for ActionExecutor {
 impl ActionExecutor {
     /// Create a new action executor
     pub fn new() -> Self {
-        Self {
-            audit_all: false,
-        }
+        Self { audit_all: false }
     }
 
     /// Enable auditing for all evaluations
@@ -185,7 +170,10 @@ impl ActionExecutor {
                     self.execute_log(message, *level, &result.rule_name);
                 }
 
-                Action::Stop { message, status_code } => {
+                Action::Stop {
+                    message,
+                    status_code,
+                } => {
                     outcome.should_stop = true;
                     outcome.stop_message = message.clone();
                     outcome.stop_status = Some(*status_code);
@@ -312,11 +300,9 @@ pub fn apply_modifications(text: &str, modifications: &[TextModification]) -> St
 
     // Sort modifications by position (reverse order for replacements to work correctly)
     let mut sorted_mods: Vec<&TextModification> = modifications.iter().collect();
-    sorted_mods.sort_by(|a, b| {
-        match (&a.span, &b.span) {
-            (Some((a_start, _)), Some((b_start, _))) => b_start.cmp(a_start),
-            _ => std::cmp::Ordering::Equal,
-        }
+    sorted_mods.sort_by(|a, b| match (&a.span, &b.span) {
+        (Some((a_start, _)), Some((b_start, _))) => b_start.cmp(a_start),
+        _ => std::cmp::Ordering::Equal,
     });
 
     for modification in sorted_mods {
@@ -333,19 +319,17 @@ pub fn apply_modifications(text: &str, modifications: &[TextModification]) -> St
                     }
                 }
             }
-            ModificationKind::Inject => {
-                match modification.position {
-                    Some(InjectPosition::Before) => {
-                        result = format!("{}{}", modification.content, result);
-                    }
-                    Some(InjectPosition::After) | None => {
-                        result = format!("{}{}", result, modification.content);
-                    }
-                    Some(InjectPosition::Replace) => {
-                        result = modification.content.clone();
-                    }
+            ModificationKind::Inject => match modification.position {
+                Some(InjectPosition::Before) => {
+                    result = format!("{}{}", modification.content, result);
                 }
-            }
+                Some(InjectPosition::After) | None => {
+                    result = format!("{}{}", result, modification.content);
+                }
+                Some(InjectPosition::Replace) => {
+                    result = modification.content.clone();
+                }
+            },
         }
     }
 
@@ -370,12 +354,10 @@ mod tests {
     #[test]
     fn test_log_action() {
         let executor = ActionExecutor::new();
-        let result = create_test_result(vec![
-            Action::Log {
-                message: "Test message".to_string(),
-                level: LogLevel::Info,
-            }
-        ]);
+        let result = create_test_result(vec![Action::Log {
+            message: "Test message".to_string(),
+            level: LogLevel::Info,
+        }]);
 
         let outcome = executor.execute(&[result]);
         // Log actions don't produce visible outcome
@@ -386,12 +368,10 @@ mod tests {
     #[test]
     fn test_stop_action() {
         let executor = ActionExecutor::new();
-        let result = create_test_result(vec![
-            Action::Stop {
-                message: Some("Blocked".to_string()),
-                status_code: 403,
-            }
-        ]);
+        let result = create_test_result(vec![Action::Stop {
+            message: Some("Blocked".to_string()),
+            status_code: 403,
+        }]);
 
         let outcome = executor.execute(&[result]);
         assert!(outcome.should_stop);
@@ -402,11 +382,9 @@ mod tests {
     #[test]
     fn test_redact_action() {
         let executor = ActionExecutor::new();
-        let result = create_test_result(vec![
-            Action::Redact {
-                replacement: "[REDACTED]".to_string(),
-            }
-        ]);
+        let result = create_test_result(vec![Action::Redact {
+            replacement: "[REDACTED]".to_string(),
+        }]);
 
         let outcome = executor.execute(&[result]);
         assert_eq!(outcome.modifications.len(), 1);
@@ -416,28 +394,27 @@ mod tests {
     #[test]
     fn test_inject_action() {
         let executor = ActionExecutor::new();
-        let result = create_test_result(vec![
-            Action::Inject {
-                content: "WARNING: ".to_string(),
-                position: InjectPosition::Before,
-            }
-        ]);
+        let result = create_test_result(vec![Action::Inject {
+            content: "WARNING: ".to_string(),
+            position: InjectPosition::Before,
+        }]);
 
         let outcome = executor.execute(&[result]);
         assert_eq!(outcome.modifications.len(), 1);
         assert_eq!(outcome.modifications[0].kind, ModificationKind::Inject);
-        assert_eq!(outcome.modifications[0].position, Some(InjectPosition::Before));
+        assert_eq!(
+            outcome.modifications[0].position,
+            Some(InjectPosition::Before)
+        );
     }
 
     #[test]
     fn test_adapt_action() {
         let executor = ActionExecutor::new();
-        let result = create_test_result(vec![
-            Action::Adapt {
-                parameter: AdaptParameter::Temperature,
-                value: 0.5,
-            }
-        ]);
+        let result = create_test_result(vec![Action::Adapt {
+            parameter: AdaptParameter::Temperature,
+            value: 0.5,
+        }]);
 
         let outcome = executor.execute(&[result]);
         assert_eq!(outcome.adaptations.len(), 1);
@@ -447,12 +424,10 @@ mod tests {
     #[test]
     fn test_audit_action() {
         let executor = ActionExecutor::new();
-        let result = create_test_result(vec![
-            Action::Audit {
-                category: "financial_advice".to_string(),
-                severity: AuditSeverity::High,
-            }
-        ]);
+        let result = create_test_result(vec![Action::Audit {
+            category: "financial_advice".to_string(),
+            severity: AuditSeverity::High,
+        }]);
 
         let outcome = executor.execute(&[result]);
         assert_eq!(outcome.audit_records.len(), 1);
@@ -485,14 +460,12 @@ mod tests {
 
     #[test]
     fn test_apply_inject_before() {
-        let mods = vec![
-            TextModification {
-                kind: ModificationKind::Inject,
-                content: "WARNING: ".to_string(),
-                position: Some(InjectPosition::Before),
-                span: None,
-            }
-        ];
+        let mods = vec![TextModification {
+            kind: ModificationKind::Inject,
+            content: "WARNING: ".to_string(),
+            position: Some(InjectPosition::Before),
+            span: None,
+        }];
 
         let result = apply_modifications("Hello", &mods);
         assert_eq!(result, "WARNING: Hello");
@@ -500,14 +473,12 @@ mod tests {
 
     #[test]
     fn test_apply_inject_after() {
-        let mods = vec![
-            TextModification {
-                kind: ModificationKind::Inject,
-                content: " [END]".to_string(),
-                position: Some(InjectPosition::After),
-                span: None,
-            }
-        ];
+        let mods = vec![TextModification {
+            kind: ModificationKind::Inject,
+            content: " [END]".to_string(),
+            position: Some(InjectPosition::After),
+            span: None,
+        }];
 
         let result = apply_modifications("Hello", &mods);
         assert_eq!(result, "Hello [END]");
@@ -515,14 +486,12 @@ mod tests {
 
     #[test]
     fn test_apply_redact_with_span() {
-        let mods = vec![
-            TextModification {
-                kind: ModificationKind::Redact,
-                content: "[REDACTED]".to_string(),
-                position: None,
-                span: Some((6, 11)), // "World"
-            }
-        ];
+        let mods = vec![TextModification {
+            kind: ModificationKind::Redact,
+            content: "[REDACTED]".to_string(),
+            position: None,
+            span: Some((6, 11)), // "World"
+        }];
 
         let result = apply_modifications("Hello World!", &mods);
         assert_eq!(result, "Hello [REDACTED]!");

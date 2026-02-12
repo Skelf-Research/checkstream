@@ -3,7 +3,11 @@ use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug)]
 #[command(name = "checkstream-demo")]
-#[command(author, version, about = "Interactive CheckStream demo and visualization")]
+#[command(
+    author,
+    version,
+    about = "Interactive CheckStream demo and visualization"
+)]
 #[command(propagate_version = true)]
 pub struct Cli {
     #[command(subcommand)]

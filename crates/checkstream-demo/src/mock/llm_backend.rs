@@ -52,10 +52,7 @@ impl MockLlmBackend {
     }
 
     /// Generate streaming response chunks
-    pub fn chat_completion_stream(
-        &self,
-        request: &ChatRequest,
-    ) -> Vec<String> {
+    pub fn chat_completion_stream(&self, request: &ChatRequest) -> Vec<String> {
         let response = self.chat_completion(request);
 
         // Split response into chunks (simulating streaming)
@@ -112,8 +109,7 @@ impl ResponseTemplates {
         // Detect conversation type from last user message
         let last_message = messages
             .iter()
-            .filter(|m| m.role == "user")
-            .last()
+            .rfind(|m| m.role == "user")
             .map(|m| m.content.to_lowercase())
             .unwrap_or_default();
 

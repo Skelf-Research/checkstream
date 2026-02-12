@@ -27,6 +27,7 @@ WORKDIR /app
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     ca-certificates \
+    curl \
     libssl3 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -47,7 +48,7 @@ EXPOSE 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD ["/usr/local/bin/checkstream-proxy", "--help"] || exit 1
+    CMD ["curl", "-fsS", "http://127.0.0.1:8080/health/live"] || exit 1
 
 ENTRYPOINT ["/usr/local/bin/checkstream-proxy"]
 CMD ["--listen", "0.0.0.0", "--port", "8080"]

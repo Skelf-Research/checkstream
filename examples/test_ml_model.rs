@@ -12,19 +12,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let classifier = ToxicityClassifier::new()?;
 
     println!("\nTesting with safe text:");
-    let result = classifier.classify("This is a nice friendly message").await?;
-    println!("  Label: {}, Score: {:.3}, Model: {:?}, Latency: {}µs",
-        result.label, result.score, result.metadata.model, result.latency_us);
+    let result = classifier
+        .classify("This is a nice friendly message")
+        .await?;
+    println!(
+        "  Label: {}, Score: {:.3}, Model: {:?}, Latency: {}µs",
+        result.label, result.score, result.metadata.model, result.latency_us
+    );
 
     println!("\nTesting with toxic text:");
     let result = classifier.classify("I hate you, you stupid idiot!").await?;
-    println!("  Label: {}, Score: {:.3}, Model: {:?}, Latency: {}µs",
-        result.label, result.score, result.metadata.model, result.latency_us);
+    println!(
+        "  Label: {}, Score: {:.3}, Model: {:?}, Latency: {}µs",
+        result.label, result.score, result.metadata.model, result.latency_us
+    );
 
     println!("\nTesting with mildly toxic text:");
     let result = classifier.classify("This is terrible and awful").await?;
-    println!("  Label: {}, Score: {:.3}, Model: {:?}, Latency: {}µs",
-        result.label, result.score, result.metadata.model, result.latency_us);
+    println!(
+        "  Label: {}, Score: {:.3}, Model: {:?}, Latency: {}µs",
+        result.label, result.score, result.metadata.model, result.latency_us
+    );
 
     Ok(())
 }

@@ -32,7 +32,9 @@ impl Policy {
     }
 
     /// Load a policy from a file
-    pub fn from_file(path: impl AsRef<std::path::Path>) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn from_file(
+        path: impl AsRef<std::path::Path>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let content = std::fs::read_to_string(path)?;
         Ok(Self::from_yaml(&content)?)
     }

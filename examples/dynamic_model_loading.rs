@@ -1,6 +1,5 @@
 use checkstream_classifiers::generic_loader::GenericModelLoader;
 use checkstream_classifiers::model_config::ModelRegistry;
-use checkstream_classifiers::Classifier;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -15,7 +14,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load model registry from YAML
     println!("Loading model registry from models/registry.yaml...");
     let registry = ModelRegistry::from_file("models/registry.yaml")?;
-    println!("✓ Registry loaded: {} models available\n", registry.models.len());
+    println!(
+        "✓ Registry loaded: {} models available\n",
+        registry.models.len()
+    );
 
     // Create generic model loader
     let loader = GenericModelLoader::new(registry);

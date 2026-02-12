@@ -1,7 +1,7 @@
 //! Classifier trait and common types
 
-use checkstream_core::Result;
 use async_trait::async_trait;
+use checkstream_core::Result;
 
 /// Trait for all classifiers
 #[async_trait]

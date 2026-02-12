@@ -1,6 +1,6 @@
 //! Pattern-based classifier (Tier A)
 
-use crate::classifier::{Classifier, ClassificationResult, ClassificationMetadata, ClassifierTier};
+use crate::classifier::{ClassificationMetadata, ClassificationResult, Classifier, ClassifierTier};
 use aho_corasick::AhoCorasick;
 use checkstream_core::Result;
 use std::time::Instant;
@@ -20,7 +20,12 @@ impl PatternClassifier {
         let ac = AhoCorasick::builder()
             .ascii_case_insensitive(true)
             .build(&pattern_strs)
-            .map_err(|e| checkstream_core::Error::classifier(format!("Failed to build pattern matcher: {}", e)))?;
+            .map_err(|e| {
+                checkstream_core::Error::classifier(format!(
+                    "Failed to build pattern matcher: {}",
+                    e
+                ))
+            })?;
 
         Ok(Self {
             name: name.into(),
@@ -48,10 +53,10 @@ impl Classifier for PatternClassifier {
             let match_info = &matches[0];
             let label = self.pattern_labels[match_info.pattern().as_usize()].clone();
 
-            let mut metadata = ClassificationMetadata::default();
-            metadata.spans = matches.iter()
-                .map(|m| (m.start(), m.end()))
-                .collect();
+            let metadata = ClassificationMetadata {
+                spans: matches.iter().map(|m| (m.start(), m.end())).collect(),
+                ..Default::default()
+            };
 
             ClassificationResult {
                 label,
@@ -90,7 +95,10 @@ mod tests {
         assert_eq!(result.label, "clean");
         assert_eq!(result.score, 0.0);
 
-        let result = classifier.classify("click here for free stuff").await.unwrap();
+        let result = classifier
+            .classify("click here for free stuff")
+            .await
+            .unwrap();
         assert_eq!(result.label, "spam");
         assert_eq!(result.score, 1.0);
         assert!(!result.metadata.spans.is_empty());

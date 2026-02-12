@@ -3,7 +3,7 @@
 //! This module provides utilities for running classifiers on streaming text
 //! with the ability to see previous chunks for context.
 
-use crate::{Classifier, ClassificationResult, ClassifierPipeline, PipelineExecutionResult};
+use crate::{ClassificationResult, Classifier, ClassifierPipeline, PipelineExecutionResult};
 use checkstream_core::Result;
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -26,8 +26,8 @@ pub struct StreamingConfig {
 impl Default for StreamingConfig {
     fn default() -> Self {
         Self {
-            context_chunks: 3,       // Last 3 chunks by default
-            max_buffer_size: 100,    // Max 100 chunks
+            context_chunks: 3,    // Last 3 chunks by default
+            max_buffer_size: 100, // Max 100 chunks
             chunk_delimiter: " ".to_string(),
         }
     }
@@ -37,7 +37,7 @@ impl StreamingConfig {
     /// Create config that sees entire buffer
     pub fn entire_buffer() -> Self {
         Self {
-            context_chunks: 0,  // 0 = entire buffer
+            context_chunks: 0, // 0 = entire buffer
             max_buffer_size: 1000,
             chunk_delimiter: " ".to_string(),
         }
@@ -46,7 +46,7 @@ impl StreamingConfig {
     /// Create config that only sees current chunk (no context)
     pub fn no_context() -> Self {
         Self {
-            context_chunks: 1,  // Only current chunk
+            context_chunks: 1, // Only current chunk
             max_buffer_size: 10,
             chunk_delimiter: " ".to_string(),
         }
