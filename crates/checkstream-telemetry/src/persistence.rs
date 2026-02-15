@@ -139,23 +139,9 @@ impl PersistedAuditEvent {
     }
 }
 
-/// Generate a unique event ID
+/// Generate a cryptographically secure unique event ID using UUID v4
 fn generate_event_id() -> String {
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    format!("evt_{:x}_{:x}", timestamp, rand_u32())
-}
-
-/// Simple pseudo-random u32 (not cryptographic)
-fn rand_u32() -> u32 {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    (now.as_nanos() as u32)
-        .wrapping_mul(1103515245)
-        .wrapping_add(12345)
+    format!("evt_{}", uuid::Uuid::new_v4())
 }
 
 /// Audit file writer with rotation support

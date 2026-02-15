@@ -13,6 +13,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tracing::{debug, info, warn};
 
+use crate::security::{validate_backend_url, UrlValidationConfig};
+
 use crate::config::{MultiTenantConfig, PipelineSettings, ProxyConfig, StreamFormat, TenantConfig};
 use crate::proxy::Pipelines;
 
@@ -61,6 +63,16 @@ impl TenantRuntime {
         shared_registry: Option<Arc<ClassifierRegistry>>,
     ) -> Result<Self> {
         info!("Initializing tenant runtime: {}", tenant_config.id);
+
+        // Validate backend URL to prevent SSRF attacks
+        // In production, use strict validation; allow localhost in development via env var
+        let url_config = if std::env::var("CHECKSTREAM_DEV_MODE").is_ok() {
+            UrlValidationConfig::development()
+        } else {
+            UrlValidationConfig::default()
+        };
+        validate_backend_url(&tenant_config.backend_url, &url_config)
+            .map_err(|e| anyhow::anyhow!("Invalid backend URL for tenant '{}': {}", tenant_config.id, e))?;
 
         // Use shared registry or load tenant-specific classifiers
         let registry = if let Some(shared) = shared_registry {
@@ -114,6 +126,15 @@ impl TenantRuntime {
     /// Create a tenant runtime from the default proxy configuration (backward compat)
     pub async fn from_proxy_config(config: &ProxyConfig) -> Result<Self> {
         info!("Initializing default tenant runtime");
+
+        // Validate backend URL to prevent SSRF attacks
+        let url_config = if std::env::var("CHECKSTREAM_DEV_MODE").is_ok() {
+            UrlValidationConfig::development()
+        } else {
+            UrlValidationConfig::default()
+        };
+        validate_backend_url(&config.backend_url, &url_config)
+            .map_err(|e| anyhow::anyhow!("Invalid backend URL: {}", e))?;
 
         // Load classifier registry
         let registry = ClassifierRegistry::from_file(&config.classifiers_config).await?;
@@ -276,10 +297,11 @@ impl TenantResolver {
         if let Some(tenant_id) = headers.get("x-tenant-id") {
             if let Ok(id) = tenant_id.to_str() {
                 if let Some(tenant) = self.tenants.get(id) {
-                    debug!("Resolved tenant from header: {}", id);
+                    debug!("Resolved tenant from header");
                     return tenant.clone();
                 }
-                warn!("Unknown tenant ID in header: {}", id);
+                // Don't log the tenant ID to prevent enumeration attacks
+                debug!("Tenant resolution failed, using default");
             }
         }
 

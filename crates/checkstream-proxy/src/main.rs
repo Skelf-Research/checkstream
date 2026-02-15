@@ -16,6 +16,7 @@ use tracing::{info, warn};
 mod config;
 mod proxy;
 mod routes;
+mod security;
 mod tenant;
 
 use config::MultiTenantConfig;

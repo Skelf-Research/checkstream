@@ -1,12 +1,14 @@
 //! HTTP routes and handlers
 
 use axum::{
-    extract::{Query, State},
-    http::{HeaderMap, HeaderValue, StatusCode},
+    extract::{DefaultBodyLimit, Query, State},
+    http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
+use subtle::ConstantTimeEq;
+use tower_http::set_header::SetResponseHeaderLayer;
 use checkstream_policy::action::InjectPosition;
 use checkstream_policy::executor::{ActionOutcome, ModificationKind, TextModification};
 use checkstream_telemetry::{AuditQuery as TelemetryAuditQuery, AuditSeverity};
@@ -23,6 +25,9 @@ use crate::tenant::TenantRuntime;
 use axum::extract::Path;
 use checkstream_classifiers::{StreamingConfig, StreamingPipeline};
 use checkstream_core::ParsedChunk;
+
+/// Maximum request body size (10 MB)
+const MAX_BODY_SIZE: usize = 10 * 1024 * 1024;
 
 pub fn create_router(state: AppState) -> Router {
     Router::new()
@@ -44,6 +49,29 @@ pub fn create_router(state: AppState) -> Router {
         // Tenant info endpoint
         .route("/tenants", get(list_tenants))
         .fallback(fallback)
+        // Security: Request body size limit to prevent memory exhaustion
+        .layer(DefaultBodyLimit::max(MAX_BODY_SIZE))
+        // Security: Add security headers to all responses
+        .layer(SetResponseHeaderLayer::overriding(
+            HeaderName::from_static("x-content-type-options"),
+            HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            HeaderName::from_static("x-frame-options"),
+            HeaderValue::from_static("DENY"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            HeaderName::from_static("x-xss-protection"),
+            HeaderValue::from_static("1; mode=block"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            HeaderName::from_static("cache-control"),
+            HeaderValue::from_static("no-store"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            HeaderName::from_static("content-security-policy"),
+            HeaderValue::from_static("default-src 'none'; frame-ancestors 'none'"),
+        ))
         .with_state(state)
 }
 
@@ -105,20 +133,31 @@ fn admin_api_key() -> Option<&'static str> {
         .as_deref()
 }
 
+/// Constant-time string comparison to prevent timing attacks.
+/// Returns true if both strings are equal, using constant-time comparison.
+fn constant_time_eq(a: &str, b: &str) -> bool {
+    // Length comparison is unavoidable but we still use constant-time for content
+    if a.len() != b.len() {
+        return false;
+    }
+    a.as_bytes().ct_eq(b.as_bytes()).into()
+}
+
 fn require_admin(headers: &HeaderMap) -> Result<(), AppError> {
     let expected = admin_api_key()
         .ok_or_else(|| AppError::Forbidden("Admin API key is not configured".to_string()))?;
 
+    // Use constant-time comparison to prevent timing attacks
     let header_match = headers
         .get("x-checkstream-admin-key")
         .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v == expected);
+        .is_some_and(|v| constant_time_eq(v, expected));
 
     let bearer_match = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
-        .is_some_and(|v| v.trim() == expected);
+        .is_some_and(|v| constant_time_eq(v.trim(), expected));
 
     if header_match || bearer_match {
         Ok(())

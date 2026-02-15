@@ -33,6 +33,9 @@ thiserror = { workspace = true }
 # Hashing for audit trail
 sha2 = { workspace = true }
 
+# Secure ID generation
+uuid = { workspace = true }
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
 tempfile = { workspace = true }

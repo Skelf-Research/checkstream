@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
+/// Maximum configuration file size (1 MB) to prevent YAML bomb attacks
+const MAX_CONFIG_FILE_SIZE: u64 = 1024 * 1024;
+
 /// Proxy configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProxyConfig {
@@ -105,10 +108,21 @@ impl Default for StreamingSettings {
 
 impl ProxyConfig {
     /// Load configuration from file and CLI overrides
+    ///
+    /// Includes protection against YAML bomb attacks by enforcing a maximum file size.
     #[allow(dead_code)]
     pub(crate) fn load(config_path: &str, cli: &crate::Cli) -> anyhow::Result<Self> {
         // Try to load from file, or use defaults
         let mut config = if Path::new(config_path).exists() {
+            // Check file size before reading to prevent YAML bomb attacks
+            let metadata = std::fs::metadata(config_path)?;
+            if metadata.len() > MAX_CONFIG_FILE_SIZE {
+                anyhow::bail!(
+                    "Configuration file exceeds maximum size of {} bytes (got {} bytes)",
+                    MAX_CONFIG_FILE_SIZE,
+                    metadata.len()
+                );
+            }
             let content = std::fs::read_to_string(config_path)?;
             serde_yaml::from_str(&content)?
         } else {
@@ -263,8 +277,19 @@ pub struct MultiTenantConfig {
 
 impl MultiTenantConfig {
     /// Load multi-tenant configuration from file
+    ///
+    /// Includes protection against YAML bomb attacks by enforcing a maximum file size.
     pub(crate) fn load(config_path: &str, cli: &crate::Cli) -> anyhow::Result<Self> {
         let mut config = if Path::new(config_path).exists() {
+            // Check file size before reading to prevent YAML bomb attacks
+            let metadata = std::fs::metadata(config_path)?;
+            if metadata.len() > MAX_CONFIG_FILE_SIZE {
+                anyhow::bail!(
+                    "Configuration file exceeds maximum size of {} bytes (got {} bytes)",
+                    MAX_CONFIG_FILE_SIZE,
+                    metadata.len()
+                );
+            }
             let content = std::fs::read_to_string(config_path)?;
             serde_yaml::from_str(&content)?
         } else {

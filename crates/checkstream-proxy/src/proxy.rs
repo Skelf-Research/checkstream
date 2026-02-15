@@ -473,12 +473,7 @@ fn convert_severity(severity: &checkstream_policy::action::AuditSeverity) -> Pol
     }
 }
 
-/// Generate a unique request ID
+/// Generate a cryptographically secure unique request ID using UUID v4
 pub fn generate_request_id() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    format!("req_{:x}", timestamp)
+    format!("req_{}", uuid::Uuid::new_v4())
 }
