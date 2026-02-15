@@ -88,6 +88,53 @@ CheckStream defends against:
 - **Telemetry storage**: AES-256 encryption, per-tenant keys
 - **Audit logs**: Append-only, encrypted, immutable
 
+### Proxy Security Features
+
+The CheckStream proxy implements multiple security hardening measures:
+
+#### SSRF Protection
+
+Backend URLs are validated to prevent Server-Side Request Forgery attacks:
+
+- **HTTPS-only**: Only HTTPS URLs are permitted in production (HTTP allowed in dev mode)
+- **Blocked hosts**: Localhost, loopback addresses (127.0.0.1, ::1), and cloud metadata endpoints (169.254.169.254) are blocked
+- **Private IP blocking**: RFC 1918 private ranges (10.x.x.x, 172.16.x.x, 192.168.x.x) are blocked
+- **Domain allowlisting**: Optional configuration to restrict backend URLs to specific domains
+
+```yaml
+# Enable development mode to allow localhost backends
+# Set environment variable: CHECKSTREAM_DEV_MODE=1
+```
+
+#### Timing Attack Protection
+
+Admin API key validation uses constant-time comparison to prevent timing attacks that could extract credentials character-by-character.
+
+#### Request Size Limits
+
+Request bodies are limited to 10MB to prevent memory exhaustion attacks.
+
+#### Security Headers
+
+All responses include security headers:
+
+| Header | Value | Purpose |
+|--------|-------|---------|
+| `X-Content-Type-Options` | `nosniff` | Prevent MIME sniffing |
+| `X-Frame-Options` | `DENY` | Prevent clickjacking |
+| `X-XSS-Protection` | `1; mode=block` | XSS filter |
+| `Cache-Control` | `no-store` | Prevent caching sensitive responses |
+| `Content-Security-Policy` | `default-src 'none'` | Strict CSP |
+
+#### Secure ID Generation
+
+Request IDs and audit event IDs use cryptographically secure UUID v4 generation, preventing ID prediction attacks.
+
+#### Configuration Security
+
+- **YAML size limits**: Configuration files are limited to 1MB to prevent YAML bomb (billion laughs) attacks
+- **Tenant isolation**: Unknown tenant IDs are not logged to prevent enumeration attacks
+
 ### Authentication & Authorization
 
 #### API Authentication

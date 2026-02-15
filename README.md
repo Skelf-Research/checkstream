@@ -22,6 +22,7 @@ CheckStream is a production-ready Rust guardrail platform that enforces safety, 
 | Action Executor | **Complete** | Stop, Redact, Log, Audit actions |
 | Audit Trail | **Complete** | Hash-chained, tamper-proof logging |
 | Telemetry | **Complete** | Prometheus metrics, structured logging |
+| Security Hardening | **Complete** | SSRF protection, timing-safe auth, security headers |
 | Tests | **122 passing** | Unit, integration, ML classifier tests |
 
 ## Quick Start
@@ -160,9 +161,47 @@ rules:
 GET /health        # Basic health check
 GET /health/live   # Kubernetes liveness probe
 GET /health/ready  # Kubernetes readiness probe
-GET /metrics       # Prometheus metrics
-GET /audit         # Query audit trail
+GET /metrics       # Prometheus metrics (requires admin key)
+GET /audit         # Query audit trail (requires admin key)
 ```
+
+## Security
+
+CheckStream is built with security as a core principle:
+
+### Built-in Protections
+
+| Feature | Description |
+|---------|-------------|
+| **SSRF Protection** | Backend URLs validated; internal IPs and cloud metadata endpoints blocked |
+| **Timing-Safe Auth** | Constant-time comparison prevents API key extraction via timing attacks |
+| **Request Limits** | 10MB body size limit prevents memory exhaustion |
+| **Security Headers** | X-Content-Type-Options, X-Frame-Options, CSP on all responses |
+| **Secure IDs** | Cryptographic UUID v4 for request/event IDs (unpredictable) |
+| **Config Limits** | 1MB YAML file limit prevents billion-laughs attacks |
+| **Memory Safety** | Written in Rust - no buffer overflows or use-after-free |
+
+### Admin Authentication
+
+Protect admin endpoints with an API key:
+
+```bash
+export CHECKSTREAM_ADMIN_API_KEY="$(openssl rand -hex 32)"
+
+# Access protected endpoints
+curl -H "X-Checkstream-Admin-Key: $CHECKSTREAM_ADMIN_API_KEY" \
+  http://localhost:8080/metrics
+```
+
+### Development Mode
+
+For local development with localhost backends:
+
+```bash
+export CHECKSTREAM_DEV_MODE=1  # Never use in production!
+```
+
+See [Security & Privacy](docs/security-privacy.md) for complete security documentation.
 
 ## Project Structure
 

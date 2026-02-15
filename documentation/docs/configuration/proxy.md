@@ -326,7 +326,64 @@ Automatically enabled endpoints:
 | `GET /health` | Basic health check |
 | `GET /health/live` | Kubernetes liveness probe |
 | `GET /health/ready` | Kubernetes readiness probe |
-| `GET /metrics` | Prometheus metrics |
+| `GET /metrics` | Prometheus metrics (requires admin key) |
+
+---
+
+## Security Configuration
+
+### Admin API Key
+
+Protect admin endpoints (`/metrics`, `/audit`, `/tenants`) with an API key:
+
+```bash
+export CHECKSTREAM_ADMIN_API_KEY="your-secure-key-here"
+```
+
+Access admin endpoints:
+```bash
+curl -H "X-Checkstream-Admin-Key: your-secure-key-here" \
+  http://localhost:8080/metrics
+
+# Or using Authorization header
+curl -H "Authorization: Bearer your-secure-key-here" \
+  http://localhost:8080/metrics
+```
+
+### Development Mode
+
+Enable development mode to allow localhost backends (disabled by default for security):
+
+```bash
+export CHECKSTREAM_DEV_MODE=1
+```
+
+**Warning**: Never enable development mode in production. It disables SSRF protection.
+
+### Security Features
+
+The proxy includes the following built-in security features:
+
+| Feature | Description | Default |
+|---------|-------------|---------|
+| **SSRF Protection** | Blocks requests to internal IPs and cloud metadata | Enabled |
+| **Request Size Limit** | Maximum request body size | 10MB |
+| **Timing-Safe Auth** | Constant-time API key comparison | Enabled |
+| **Security Headers** | X-Content-Type-Options, X-Frame-Options, CSP | Enabled |
+| **Secure IDs** | Cryptographically random request/event IDs | Enabled |
+| **Config Size Limit** | Maximum YAML config file size | 1MB |
+
+### Security Headers
+
+All responses include security headers:
+
+```
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+X-XSS-Protection: 1; mode=block
+Cache-Control: no-store
+Content-Security-Policy: default-src 'none'; frame-ancestors 'none'
+```
 
 ---
 
